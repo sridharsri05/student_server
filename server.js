@@ -15,12 +15,44 @@ connectDB();
 reminderJob.start();
 console.log('✅ Monthly reminder cron job scheduled.');
 
-app.use(cors({
-    origin: 'http://localhost:5173', // Allow all origins
-    methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed methods
-    allowedHeaders: ['Content-Type', 'Authorization'], // Allowed headers
-    credentials: true // Allow credentials
-}));
+// app.use(cors({
+//     origin: 'http://localhost:5173', // Allow all origins
+//     methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed methods
+//     allowedHeaders: ['Content-Type', 'Authorization'], // Allowed headers
+//     credentials: true // Allow credentials
+// }));
+
+
+
+const allowedOrigins = [
+    "http://localhost:5173", // For development
+    "https://movienexus-ruddy-nine.vercel.app", // For production
+];
+
+// Dynamically configure CORS based on the request origin
+const corsOptions = {
+    origin: function (origin, callback) {
+        if (!origin || allowedOrigins.includes(origin)) {
+            // Allow requests with no origin (like mobile apps or Postman)
+            callback(null, true);
+        } else {
+            callback(new Error("Not allowed by CORS"));
+        }
+    },
+    methods: "GET,HEAD,PUT,PATCH,POST,DELETE,OPTIONS",
+    preflightContinue: false,
+    optionsSuccessStatus: 204,
+    credentials: true, // Allow credentials (cookies, authorization headers, etc.)
+    allowedHeaders: [
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+        "Access-Control-Allow-Origin"
+    ]
+};
+app.use(cors(corsOptions));
 app.use(bodyParser.json());
 
 
