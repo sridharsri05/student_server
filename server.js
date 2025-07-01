@@ -12,8 +12,8 @@ const app = express();
 connectDB();
 
 // Start cron job
-reminderJob.start();
-console.log('✅ Monthly reminder cron job scheduled.');
+// reminderJob.start();
+// console.log('✅ Monthly reminder cron job scheduled.');
 
 // app.use(cors({
 //     origin: 'http://localhost:5173', // Allow all origins
@@ -62,5 +62,6 @@ app.use('/api', routes);
 
 app.get('/', (req, res) => res.send('🎉 Server is running'));
 
+export default app;
 // const PORT = process.env.PORT || 5000;
 // app.listen(PORT, () => console.log(`🚀 Server running on port ${PORT}`));
