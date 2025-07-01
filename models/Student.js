@@ -29,7 +29,7 @@ const studentSchema = new mongoose.Schema({
     city: { type: String, required: true },
     state: { type: String, required: true },
     pincode: { type: String, required: true },
-    rollNumber: { type: String, required: true, unique: true },
+    rollNumber: { type: String, unique: true },
     parentGuardian: {
         name: { type: String, required: true },
         phone: { type: String, required: true },
@@ -52,9 +52,20 @@ const studentSchema = new mongoose.Schema({
     courseMode: { type: mongoose.Schema.Types.ObjectId, ref: 'CourseMode', required: true },
 
     nationality: { type: mongoose.Schema.Types.ObjectId, ref: 'Nationality', required: true },
-
+    feeStatus: { type: String, enum: ['paid', 'pending', 'overdue'], default: 'pending' },
+    photo: { type: String, default: null },
+    joinDate: { type: Date, default: Date.now },
     createdAt: { type: Date, default: Date.now }
 });
 
+studentSchema.pre('save', async function (next) {
+    if (!this.isNew) return next();
+
+    const count = await mongoose.model('Student').countDocuments();
+    const nextRoll = count + 1;
+    this.rollNumber = `STU${String(nextRoll).padStart(3, '0')}`;
+
+    next();
+});
 export default mongoose.model('Student', studentSchema);
 

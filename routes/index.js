@@ -25,7 +25,9 @@ import {
 import {
     registerStudent, getStudents, getStudentsByFilters,
     updateStudent,
-    deleteStudent
+    deleteStudent,
+    registerStudentsBulk,
+    getNextRollNumber
 } from '../controllers/studentController.js';
 
 import {
@@ -97,6 +99,8 @@ router.delete('/payment-modes/:id', authenticate, authorize(['admin']), deletePa
 
 // ----- Students -----
 router.post('/students/register', registerStudent);
+router.get("/next-roll-number", getNextRollNumber);
+router.post('/students/register-bulk', authenticate, authorize(['admin']), registerStudentsBulk);
 router.get('/students', authenticate, authorize(['admin']), getStudents);
 router.get('/students/filter', authenticate, authorize(['admin']), getStudentsByFilters);
 router.put('/students/:id', authenticate, authorize(['admin']), updateStudent);
