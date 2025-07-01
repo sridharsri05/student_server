@@ -17,7 +17,9 @@ import {
     updateFeeMaster,
     deleteFeeMaster,
     updatePaymentMode,
-    deletePaymentMode
+    deletePaymentMode, createCoursePackage, getCoursePackages, updateCoursePackage, deleteCoursePackage,
+    createBatchPreference, getBatchPreferences, updateBatchPreference, deleteBatchPreference,
+    createCourseMode, getCourseModes, updateCourseMode, deleteCourseMode
 } from '../controllers/masterController.js';
 
 import {
@@ -37,7 +39,7 @@ import { register, login, refresh, logout } from '../controllers/authController.
 import { authenticate, authorize } from '../middleware/authMiddleware.js';
 import Student from '../models/Student.js';
 import Payment from '../models/Payment.js';
-
+import { getMenus } from '../controllers/menuController.js';
 const router = express.Router();
 
 router.get('/test', (_, res) => res.send('API working ✅'));
@@ -144,5 +146,30 @@ router.get('/admin/summary', authenticate, authorize(['admin']), async (req, res
         res.status(500).json({ error: err.message });
     }
 });
+
+
+
+
+// Course Packages
+router.post('/course-packages', authenticate, authorize(['admin']), createCoursePackage);
+router.get('/course-packages', getCoursePackages);
+router.put('/course-packages/:id', authenticate, authorize(['admin']), updateCoursePackage);
+router.delete('/course-packages/:id', authenticate, authorize(['admin']), deleteCoursePackage);
+
+// Batch Preferences
+router.post('/batch-preferences', authenticate, authorize(['admin']), createBatchPreference);
+router.get('/batch-preferences', getBatchPreferences);
+router.put('/batch-preferences/:id', authenticate, authorize(['admin']), updateBatchPreference);
+router.delete('/batch-preferences/:id', authenticate, authorize(['admin']), deleteBatchPreference);
+
+// Course Modes
+router.post('/course-modes', authenticate, authorize(['admin']), createCourseMode);
+router.get('/course-modes', getCourseModes);
+router.put('/course-modes/:id', authenticate, authorize(['admin']), updateCourseMode);
+router.delete('/course-modes/:id', authenticate, authorize(['admin']), deleteCourseMode);
+
+
+router.get('/menus', getMenus);
+
 
 export default router;

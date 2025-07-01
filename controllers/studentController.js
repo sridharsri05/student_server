@@ -2,16 +2,27 @@ import Student from '../models/Student.js';
 
 // Register a new student
 export const registerStudent = async (req, res) => {
-    const student = new Student(req.body);
-    await student.save();
-    res.json(student);
+    try {
+        const student = new Student(req.body);
+        await student.save();
+        res.status(201).json(student);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
 };
+
 
 // Get all students
 export const getStudents = async (_, res) => {
-    const students = await Student.find().populate('university course batch nationality');
-    res.json(students);
+    try {
+        const students = await Student.find()
+            .populate('university course coursePackage batch batchPreference courseMode nationality');
+        res.json(students);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 };
+
 
 // Get students by filters
 export const getStudentsByFilters = async (req, res) => {

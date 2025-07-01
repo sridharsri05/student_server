@@ -1,3 +1,4 @@
+
 import User from '../models/User.js';
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
@@ -28,7 +29,7 @@ export const login = async (req, res) => {
         const { email, password } = req.body;
 
         const user = await User.findOne({ email });
-        if (!user) return res.status(400).json({ error: 'user not found' });
+        if (!user) return res.status(400).json({ error: 'User not found' });
 
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) return res.status(400).json({ error: 'Invalid credentials' });
@@ -38,7 +39,7 @@ export const login = async (req, res) => {
 
         res.cookie('refreshToken', refreshToken, {
             httpOnly: true,
-            secure: true, // true in production (HTTPS)
+            secure: process.env.NODE_ENV === 'production', // true in production, false in local dev
             sameSite: 'strict',
             maxAge: 7 * 24 * 60 * 60 * 1000,
         });
@@ -49,22 +50,41 @@ export const login = async (req, res) => {
     }
 };
 
-export const refresh = (req, res) => {
-    const token = req.cookies.refreshToken;
-    if (!token) return res.status(401).json({ error: 'No refresh token' });
 
-    jwt.verify(token, JWT_REFRESH_SECRET, (err, decoded) => {
-        if (err) return res.status(403).json({ error: 'Invalid refresh token' });
+// 🔥 Refresh token endpoint
+export const refresh = async (req, res) => {
+    try {
+        const token = req.cookies?.refreshToken;
+        if (!token) return res.status(401).json({ error: 'No refresh token' });
 
-        const accessToken = jwt.sign({ id: decoded.id, role: decoded.role }, JWT_SECRET, { expiresIn: '30m' });
-        res.json({ accessToken });
-    });
+        jwt.verify(token, JWT_REFRESH_SECRET, async (err, decoded) => {
+            if (err) return res.status(403).json({ error: 'Invalid or expired refresh token' });
+
+            // 🔥 Fetch full user to get name
+            const user = await User.findById(decoded.id);
+            if (!user) return res.status(404).json({ error: 'User not found' });
+
+            const accessToken = jwt.sign({ id: user._id, role: user.role }, JWT_SECRET, { expiresIn: '30m' });
+
+            res.json({
+                accessToken,
+                user: {
+                    id: user._id,
+                    name: user.name,
+                    role: user.role,
+                },
+            });
+        });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
 };
+
 
 export const logout = (req, res) => {
     res.clearCookie('refreshToken', {
         httpOnly: true,
-        secure: true,
+        secure: process.env.NODE_ENV === 'production',
         sameSite: 'strict',
     });
     res.json({ message: 'Logged out successfully' });
