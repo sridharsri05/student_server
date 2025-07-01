@@ -29,7 +29,7 @@ const studentSchema = new mongoose.Schema({
     city: { type: String, required: true },
     state: { type: String, required: true },
     pincode: { type: String, required: true },
-
+    rollNumber: { type: String, required: true, unique: true },
     parentGuardian: {
         name: { type: String, required: true },
         phone: { type: String, required: true },
