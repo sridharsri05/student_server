@@ -11,9 +11,9 @@ export const registerStudent = async (req, res) => {
     try {
         const student = new Student(req.body);
         await student.save();
-        res.status(201).json(student);
+        res.status(201).json({ student, success: true });
     } catch (err) {
-        res.status(400).json({ error: err.message });
+        res.status(400).json({ error: err.message, success: false });
     }
 };
 
@@ -57,9 +57,9 @@ export const getStudents = async (_, res) => {
     try {
         const students = await Student.find()
             .populate('university course coursePackage batch batchPreference courseMode nationality');
-        res.json(students);
+        res.json({ students, success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, success: false });
     }
 };
 
@@ -78,9 +78,9 @@ export const getStudentsByFilters = async (req, res) => {
     try {
         const students = await Student.find(query)
             .populate('university course batch nationality');
-        res.json(students);
+        res.json({ students, success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, success: false });
     }
 };
 
@@ -92,9 +92,9 @@ export const updateStudent = async (req, res) => {
     try {
         const updated = await Student.findByIdAndUpdate(req.params.id, req.body, { new: true });
         if (!updated) return res.status(404).json({ error: 'Student not found' });
-        res.json(updated);
+        res.json({ updated, success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, success: false });
     }
 };
 
@@ -103,9 +103,9 @@ export const deleteStudent = async (req, res) => {
     try {
         const deleted = await Student.findByIdAndDelete(req.params.id);
         if (!deleted) return res.status(404).json({ error: 'Student not found' });
-        res.json({ message: 'Student deleted successfully' });
+        res.json({ message: 'Student deleted successfully', success: true });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, success: false });
     }
 };
 
@@ -189,8 +189,9 @@ export const registerStudentsBulk = async (req, res) => {
             successful: insertedStudents.length,
             failed: errors.length,
             errors,
+            success: true
         });
     } catch (err) {
-        res.status(500).json({ error: err.message });
+        res.status(500).json({ error: err.message, success: false });
     }
 };
