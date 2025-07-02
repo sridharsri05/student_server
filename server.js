@@ -26,7 +26,7 @@ connectDB();
 
 const allowedOrigins = [
     "http://localhost:5173", // For development
-    "https://movienexus-ruddy-nine.vercel.app", // For production
+    "https://student-admin-frontend-seven.vercel.app", // For production
 ];
 
 // Dynamically configure CORS based on the request origin
