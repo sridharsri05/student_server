@@ -56,7 +56,7 @@ export const getNextRollNumber = async (req, res) => {
 export const getStudents = async (_, res) => {
     try {
         const students = await Student.find()
-            .populate('university course coursePackage batch batchPreference courseMode nationality');
+            .populate('university course coursePackage batchPreference courseMode nationality');
         res.json({ students, success: true });
     } catch (err) {
         res.status(500).json({ error: err.message, success: false });
@@ -77,7 +77,7 @@ export const getStudentsByFilters = async (req, res) => {
 
     try {
         const students = await Student.find(query)
-            .populate('university course batch nationality');
+            .populate('university course nationality');
         res.json({ students, success: true });
     } catch (err) {
         res.status(500).json({ error: err.message, success: false });
