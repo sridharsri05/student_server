@@ -16,7 +16,7 @@ connectDB();
 // console.log('✅ Monthly reminder cron job scheduled.');
 
 // app.use(cors({
-//     origin: 'http://localhost:5173', // Allow all origins
+//     origin: '*', // Allow all origins
 //     methods: ['GET', 'POST', 'PUT', 'DELETE'], // Allowed methods
 //     allowedHeaders: ['Content-Type', 'Authorization'], // Allowed headers
 //     credentials: true // Allow credentials
