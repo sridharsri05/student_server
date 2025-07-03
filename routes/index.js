@@ -4,7 +4,6 @@ import {
     createCourse, getCourses,
     createBatch, getBatches,
     createNationality, getNationalities,
-    createFeeMaster, getFeeMasters,
     createPaymentMode, getPaymentModes,
     updateCourse,
     deleteCourse,
@@ -14,8 +13,6 @@ import {
     deleteBatch,
     updateNationality,
     deleteNationality,
-    updateFeeMaster,
-    deleteFeeMaster,
     updatePaymentMode,
     deletePaymentMode, createCoursePackage, getCoursePackages, updateCoursePackage, deleteCoursePackage,
     createBatchPreference, getBatchPreferences, updateBatchPreference, deleteBatchPreference,
@@ -42,6 +39,9 @@ import { authenticate, authorize } from '../middleware/authMiddleware.js';
 import Student from '../models/Student.js';
 import Payment from '../models/Payment.js';
 import { getMenus } from '../controllers/menuController.js';
+import * as batchController from '../controllers/batchController.js';
+import * as paymentController from '../controllers/paymentController.js';
+
 const router = express.Router();
 
 router.get('/test', (_, res) => res.send('API working ✅'));
@@ -83,12 +83,6 @@ router.post('/nationalities', authenticate, authorize(['admin']), createNational
 router.get('/nationalities', getNationalities);
 router.put('/nationalities/:id', authenticate, authorize(['admin']), updateNationality);
 router.delete('/nationalities/:id', authenticate, authorize(['admin']), deleteNationality);
-
-
-router.post('/fee-masters', authenticate, authorize(['admin']), createFeeMaster);
-router.get('/fee-masters', getFeeMasters);
-router.put('/fee-masters/:id', authenticate, authorize(['admin']), updateFeeMaster);
-router.delete('/fee-masters/:id', authenticate, authorize(['admin']), deleteFeeMaster);
 
 
 router.post('/payment-modes', authenticate, authorize(['admin']), createPaymentMode);
@@ -175,5 +169,26 @@ router.delete('/course-modes/:id', authenticate, authorize(['admin']), deleteCou
 
 router.get('/menus', getMenus);
 
+// Batch routes
+router.get('/batches', authenticate, batchController.getBatches);
+router.post('/batches', authenticate, batchController.createBatch);
+router.get('/batches/:id', authenticate, batchController.getBatchById);
+router.put('/batches/:id', authenticate, batchController.updateBatch);
+router.delete('/batches/:id', authenticate, batchController.deleteBatch);
+router.get('/batches/analytics', authenticate, batchController.getBatchAnalytics);
+router.get('/batches/:batchId/students', authenticate, batchController.getBatchStudents);
+router.post('/batches/:batchId/students/:studentId', authenticate, batchController.addStudentToBatch);
+router.delete('/batches/:batchId/students/:studentId', authenticate, batchController.removeStudentFromBatch);
+
+// Payment routes
+router.post('/payments', paymentController.createPayment);
+router.get('/payments', paymentController.getPayments);
+router.get('/payments/analytics', paymentController.getPaymentAnalytics);
+router.get('/payments/report', paymentController.generatePaymentReport);
+router.get('/payments/pending', paymentController.getPendingPayments);
+router.get('/payments/:id', paymentController.getPaymentById);
+router.patch('/payments/:id/status', paymentController.updatePaymentStatus);
+router.get('/payments/:studentId/:paymentId/invoice', paymentController.generateInvoice);
+router.get('/payments/:studentId/:paymentId/receipt', paymentController.generateReceipt);
 
 export default router;

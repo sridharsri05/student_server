@@ -1,8 +1,9 @@
 import Payment from '../models/Payment.js';
 import EMIPayment from '../models/EMIPayment.js';
 import Student from '../models/Student.js';
-import { generateInvoicePDF, generateReceiptPDF } from '../services/pdfService.js';
+import { generateInvoicePDF, generateReceiptPDF, generatePaymentReportPDF } from '../services/pdfService.js';
 import { sendWhatsAppMessage } from '../services/whatsappService.js';
+import { startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths } from 'date-fns';
 
 export const initiatePayment = async (req, res) => {
     try {
@@ -14,9 +15,54 @@ export const initiatePayment = async (req, res) => {
     }
 };
 
-export const getPayments = async (_, res) => {
-    const payments = await Payment.find().populate('student');
-    res.json(payments);
+export const getPayments = async (req, res) => {
+    try {
+        const {
+            status,
+            paymentMethod,
+            dateFrom,
+            dateTo,
+            amountMin,
+            amountMax,
+            search
+        } = req.query;
+
+        let query = {};
+
+        if (status) query.status = status;
+        if (paymentMethod) query.paymentMethod = paymentMethod;
+        if (dateFrom && dateTo) {
+            query.createdAt = {
+                $gte: new Date(dateFrom),
+                $lte: new Date(dateTo)
+            };
+        }
+        if (amountMin || amountMax) {
+            query.totalAmount = {};
+            if (amountMin) query.totalAmount.$gte = parseFloat(amountMin);
+            if (amountMax) query.totalAmount.$lte = parseFloat(amountMax);
+        }
+        if (search) {
+            const students = await Student.find({
+                name: { $regex: search, $options: 'i' }
+            }).select('_id');
+            const studentIds = students.map(s => s._id);
+
+            query.$or = [
+                { student: { $in: studentIds } },
+                { invoiceNumber: { $regex: search, $options: 'i' } },
+                { receiptNumber: { $regex: search, $options: 'i' } }
+            ];
+        }
+
+        const payments = await Payment.find(query)
+            .populate('student', 'name phone email')
+            .sort({ createdAt: -1 });
+
+        res.json({ payments });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
 };
 
 export const addEMIPayment = async (req, res) => {
@@ -35,33 +81,45 @@ export const getEMIPayments = async (_, res) => {
 };
 
 export const generateInvoice = async (req, res) => {
-    const { studentId, paymentId } = req.params;
-    const student = await Student.findById(studentId);
-    const payment = await Payment.findById(paymentId);
+    try {
+        const { studentId, paymentId } = req.params;
+        const student = await Student.findById(studentId);
+        const payment = await Payment.findById(paymentId);
 
-    if (!student || !payment) {
-        return res.status(404).json({ error: 'Student or Payment not found' });
+        if (!student || !payment) {
+            return res.status(404).json({ error: 'Student or Payment not found' });
+        }
+
+        const pdfBuffer = await generateInvoicePDF(student, payment);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=invoice-${payment.invoiceNumber}.pdf`);
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Error generating invoice:', error);
+        res.status(500).json({ error: 'Failed to generate invoice' });
     }
-
-    const filename = `server/pdfs/invoice-${studentId}.pdf`;
-    generateInvoicePDF(student, payment, filename);
-
-    res.json({ message: 'Invoice PDF generated', filename });
 };
 
 export const generateReceipt = async (req, res) => {
-    const { studentId, paymentId } = req.params;
-    const student = await Student.findById(studentId);
-    const payment = await Payment.findById(paymentId);
+    try {
+        const { studentId, paymentId } = req.params;
+        const student = await Student.findById(studentId);
+        const payment = await Payment.findById(paymentId);
 
-    if (!student || !payment) {
-        return res.status(404).json({ error: 'Student or Payment not found' });
+        if (!student || !payment) {
+            return res.status(404).json({ error: 'Student or Payment not found' });
+        }
+
+        const pdfBuffer = await generateReceiptPDF(student, payment);
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=receipt-${payment.receiptNumber}.pdf`);
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Error generating receipt:', error);
+        res.status(500).json({ error: 'Failed to generate receipt' });
     }
-
-    const filename = `server/pdfs/receipt-${studentId}.pdf`;
-    generateReceiptPDF(student, payment, filename);
-
-    res.json({ message: 'Receipt PDF generated', filename });
 };
 
 export const sendPaymentReminder = async (req, res) => {
@@ -76,4 +134,288 @@ export const sendPaymentReminder = async (req, res) => {
     await sendWhatsAppMessage(student.phone, message);
 
     res.json({ message: 'Reminder sent via WhatsApp' });
+};
+
+export const getPaymentAnalytics = async (req, res) => {
+    try {
+        const { startDate, endDate } = req.query;
+        const query = {};
+
+        if (startDate && endDate) {
+            query.createdAt = {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+            };
+        }
+
+        // Get basic stats
+        const [totalPayments, successfulPayments, pendingPayments, failedPayments] = await Promise.all([
+            Payment.countDocuments(query),
+            Payment.countDocuments({ ...query, status: 'completed' }),
+            Payment.countDocuments({ ...query, status: 'pending' }),
+            Payment.countDocuments({ ...query, status: 'failed' })
+        ]);
+
+        // Calculate total revenue and pending amount
+        const [revenueData, pendingData] = await Promise.all([
+            Payment.aggregate([
+                { $match: { ...query, status: 'completed' } },
+                { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+            ]),
+            Payment.aggregate([
+                { $match: { ...query, status: 'pending' } },
+                { $group: { _id: null, total: { $sum: '$remainingAmount' } } }
+            ])
+        ]);
+
+        // Get monthly revenue trend (last 6 months)
+        const monthlyRevenue = await getMonthlyRevenue();
+
+        // Get payment method distribution
+        const paymentMethodDistribution = await Payment.aggregate([
+            { $match: { status: 'completed' } },
+            { $group: { _id: '$paymentMethod', count: { $sum: 1 } } }
+        ]);
+
+        res.json({
+            totalRevenue: revenueData[0]?.total || 0,
+            pendingPayments: pendingData[0]?.total || 0,
+            successfulPayments,
+            failedPayments,
+            totalPayments,
+            monthlyRevenue,
+            paymentMethodDistribution,
+            successRate: (successfulPayments / totalPayments) * 100 || 0
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const createPayment = async (req, res) => {
+    try {
+        const payment = new Payment(req.body);
+        const savedPayment = await payment.save();
+
+        // Update student status if needed
+        if (payment.status === 'completed') {
+            await Student.findByIdAndUpdate(payment.student, {
+                status: 'active-paid',
+                feeStatus: 'paid'
+            });
+        }
+
+        res.status(201).json(savedPayment);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+export const updatePaymentStatus = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const { status, notes } = req.body;
+
+        const payment = await Payment.findByIdAndUpdate(
+            id,
+            { status, notes, updatedAt: new Date() },
+            { new: true }
+        );
+
+        if (!payment) {
+            return res.status(404).json({ message: 'Payment not found' });
+        }
+
+        // Update student status if payment is completed
+        if (status === 'completed') {
+            await Student.findByIdAndUpdate(payment.student, {
+                status: 'active-paid',
+                feeStatus: 'paid'
+            });
+        }
+
+        res.json(payment);
+    } catch (error) {
+        res.status(400).json({ message: error.message });
+    }
+};
+
+export const getPendingPayments = async (req, res) => {
+    try {
+        const pendingPayments = await Payment.find({ status: 'pending' })
+            .populate('student', 'name phone email')
+            .sort({ dueDate: 1 });
+
+        res.json({ pendingPayments });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+export const getPaymentById = async (req, res) => {
+    try {
+        const payment = await Payment.findById(req.params.id)
+            .populate('student', 'name phone email');
+
+        if (!payment) {
+            return res.status(404).json({ message: 'Payment not found' });
+        }
+
+        res.json(payment);
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Get EMI analytics
+export const getEMIAnalytics = async (req, res) => {
+    try {
+        const [
+            totalEMIs,
+            paidEMIs,
+            overdueEMIs,
+            upcomingEMIs
+        ] = await Promise.all([
+            EMIPayment.countDocuments(),
+            EMIPayment.countDocuments({ status: 'paid' }),
+            EMIPayment.countDocuments({ status: 'overdue' }),
+            EMIPayment.countDocuments({
+                status: 'pending',
+                dueDate: { $gt: new Date() }
+            })
+        ]);
+
+        // Calculate collection efficiency
+        const collectionEfficiency = (paidEMIs / (paidEMIs + overdueEMIs)) * 100 || 0;
+
+        // Get monthly EMI collection trend
+        const monthlyCollection = await EMIPayment.aggregate([
+            { $match: { status: 'paid' } },
+            {
+                $group: {
+                    _id: {
+                        year: { $year: '$paidDate' },
+                        month: { $month: '$paidDate' }
+                    },
+                    total: { $sum: '$amount' }
+                }
+            },
+            { $sort: { '_id.year': -1, '_id.month': -1 } },
+            { $limit: 6 }
+        ]);
+
+        res.json({
+            totalEMIs,
+            paidEMIs,
+            overdueEMIs,
+            upcomingEMIs,
+            collectionEfficiency,
+            monthlyCollection
+        });
+    } catch (error) {
+        res.status(500).json({ message: error.message });
+    }
+};
+
+// Helper function to get monthly revenue
+const getMonthlyRevenue = async () => {
+    const months = [];
+    for (let i = 5; i >= 0; i--) {
+        const startDate = startOfMonth(subMonths(new Date(), i));
+        const endDate = endOfMonth(subMonths(new Date(), i));
+
+        const monthData = await Payment.aggregate([
+            {
+                $match: {
+                    status: 'completed',
+                    createdAt: { $gte: startDate, $lte: endDate }
+                }
+            },
+            {
+                $group: {
+                    _id: null,
+                    revenue: { $sum: '$totalAmount' },
+                    count: { $sum: 1 }
+                }
+            }
+        ]);
+
+        months.push({
+            month: startDate.toLocaleString('default', { month: 'short' }),
+            revenue: monthData[0]?.revenue || 0,
+            payments: monthData[0]?.count || 0
+        });
+    }
+    return months;
+};
+
+export const generatePaymentReport = async (req, res) => {
+    try {
+        const { startDate, endDate, filters } = req.query;
+        const query = {};
+
+        if (startDate && endDate) {
+            query.createdAt = {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+            };
+        }
+
+        // Get payments with student details
+        const payments = await Payment.find(query)
+            .populate('student', 'name email phone')
+            .sort({ createdAt: -1 });
+
+        // Get analytics data
+        const analytics = await getAnalyticsSummary(query);
+
+        // Generate PDF report
+        const pdfBuffer = await generatePaymentReportPDF(payments, analytics, {
+            dateFrom: startDate,
+            dateTo: endDate,
+            ...filters
+        });
+
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', 'attachment; filename=payment-report.pdf');
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Error generating payment report:', error);
+        res.status(500).json({ error: 'Failed to generate payment report' });
+    }
+};
+
+// Helper function to get analytics summary
+const getAnalyticsSummary = async (query = {}) => {
+    const [revenueData, pendingData, counts] = await Promise.all([
+        Payment.aggregate([
+            { $match: { ...query, status: 'completed' } },
+            { $group: { _id: null, total: { $sum: '$totalAmount' } } }
+        ]),
+        Payment.aggregate([
+            { $match: { ...query, status: 'pending' } },
+            { $group: { _id: null, total: { $sum: '$remainingAmount' } } }
+        ]),
+        Payment.aggregate([
+            { $match: query },
+            {
+                $group: {
+                    _id: '$status',
+                    count: { $sum: 1 }
+                }
+            }
+        ])
+    ]);
+
+    const statusCounts = counts.reduce((acc, curr) => {
+        acc[curr._id] = curr.count;
+        return acc;
+    }, {});
+
+    return {
+        totalRevenue: revenueData[0]?.total || 0,
+        pendingPayments: pendingData[0]?.total || 0,
+        successfulPayments: statusCounts['completed'] || 0,
+        failedPayments: statusCounts['failed'] || 0
+    };
 };
