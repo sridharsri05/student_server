@@ -38,6 +38,7 @@ import * as batchController from '../controllers/batchController.js';
 import * as paymentController from '../controllers/paymentController.js';
 import * as feeController from '../controllers/feeController.js';
 import * as whatsappController from '../controllers/whatsappController.js';
+import * as discountController from '../controllers/discountController.js';
 
 const router = express.Router();
 
@@ -192,5 +193,15 @@ router.get('/fee-structures/:id', authenticate, feeController.getFeeStructureByI
 router.post('/fee-structures', authenticate, authorize(['admin']), feeController.createFeeStructure);
 router.put('/fee-structures/:id', authenticate, authorize(['admin']), feeController.updateFeeStructure);
 router.delete('/fee-structures/:id', authenticate, authorize(['admin']), feeController.deleteFeeStructure);
+
+// ----- Discounts -----
+router.get('/discounts', authenticate, discountController.getAllDiscounts);
+router.get('/discounts/available', authenticate, discountController.getAvailableDiscounts);
+router.get('/discounts/:id', authenticate, discountController.getDiscountById);
+router.post('/discounts', authenticate, authorize(['admin']), discountController.createDiscount);
+router.put('/discounts/:id', authenticate, authorize(['admin']), discountController.updateDiscount);
+router.delete('/discounts/:id', authenticate, authorize(['admin']), discountController.deleteDiscount);
+router.post('/discounts/validate', authenticate, discountController.validateDiscountCode);
+router.post('/discounts/apply', authenticate, discountController.applyDiscount);
 
 export default router;
