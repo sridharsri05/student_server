@@ -9,6 +9,7 @@ const scheduleSchema = new mongoose.Schema({
 const batchSchema = new mongoose.Schema({
     name: { type: String, required: true },
     course: { type: mongoose.Schema.Types.ObjectId, ref: 'Course', required: true },
+    coursePackage: { type: mongoose.Schema.Types.ObjectId, ref: 'CoursePackage' },
     instructor: { type: String, required: true },
     instructorImage: { type: String },
     maxCapacity: { type: Number, required: true },

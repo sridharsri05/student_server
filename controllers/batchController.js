@@ -17,7 +17,7 @@ export const getBatches = async (req, res) => {
         }
 
         // Ensure course is always populated
-        const batches = await Batch.find(query).populate('course');
+        const batches = await Batch.find(query).populate('course').populate('coursePackage');
 
         // Get analytics data (optional, keep if used by frontend)
         const totalBatches = await Batch.countDocuments();
@@ -55,7 +55,7 @@ export const getBatches = async (req, res) => {
 // Get batch by ID
 export const getBatchById = async (req, res) => {
     try {
-        const batch = await Batch.findById(req.params.id).populate('course');
+        const batch = await Batch.findById(req.params.id).populate('course').populate('coursePackage');
         if (!batch) {
             return res.status(404).json({ message: 'Batch not found' });
         }
