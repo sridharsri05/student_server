@@ -165,6 +165,7 @@ router.get('/menus', getMenus);
 
 // Batch routes
 router.get('/batches', authenticate, batchController.getBatches);
+router.get('/batches/schedule', authenticate, batchController.getBatchSchedule);
 router.post('/batches', authenticate, authorize(['admin']), batchController.createBatch);
 router.get('/batches/:id', authenticate, batchController.getBatchById);
 router.put('/batches/:id', authenticate, authorize(['admin']), batchController.updateBatch);
