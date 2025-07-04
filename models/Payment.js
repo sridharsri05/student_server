@@ -42,6 +42,7 @@ const paymentSchema = new mongoose.Schema({
     invoiceNumber: { type: String, unique: true },
     receiptNumber: { type: String, unique: true },
     transactionId: String,
+    feeStructure: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeStructure' },
     createdAt: { type: Date, default: Date.now },
     updatedAt: { type: Date, default: Date.now }
 });

@@ -57,6 +57,7 @@ export const getPayments = async (req, res) => {
 
         const payments = await Payment.find(query)
             .populate('student', 'name phone email')
+            .populate('feeStructure', 'name')
             .sort({ createdAt: -1 });
 
         res.json({ payments });
