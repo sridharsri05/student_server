@@ -67,28 +67,6 @@ export const deleteCourse = async (req, res) => {
     }
 };
 
-// Batches
-export const createBatch = (req, res) => handleCreate(Batch, req, res, 'batch');
-export const getBatches = async (_, res) => res.json(await Batch.find());
-export const updateBatch = async (req, res) => {
-    try {
-        const updated = await Batch.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        if (!updated) return res.status(404).json({ error: 'Batch not found' });
-        res.json(updated);
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-};
-export const deleteBatch = async (req, res) => {
-    try {
-        const deleted = await Batch.findByIdAndDelete(req.params.id);
-        if (!deleted) return res.status(404).json({ error: 'Batch not found' });
-        res.json({ message: 'Batch deleted successfully' });
-    } catch (err) {
-        res.status(500).json({ error: err.message });
-    }
-};
-
 // Nationalities
 export const createNationality = (req, res) => handleCreate(Nationality, req, res, 'nationality');
 export const getNationalities = async (_, res) => res.json(await Nationality.find());

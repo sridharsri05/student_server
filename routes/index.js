@@ -2,15 +2,12 @@ import express from 'express';
 import {
     createUniversity, getUniversities,
     createCourse, getCourses,
-    createBatch, getBatches,
     createNationality, getNationalities,
     createPaymentMode, getPaymentModes,
     updateCourse,
     deleteCourse,
     updateUniversity,
     deleteUniversity,
-    updateBatch,
-    deleteBatch,
     updateNationality,
     deleteNationality,
     updatePaymentMode,
@@ -73,10 +70,7 @@ router.get('/courses', getCourses);
 router.put('/courses/:id', authenticate, authorize(['admin']), updateCourse);
 router.delete('/courses/:id', authenticate, authorize(['admin']), deleteCourse);
 
-router.post('/batches', authenticate, authorize(['admin']), createBatch);
-router.get('/batches', getBatches);
-router.put('/batches/:id', authenticate, authorize(['admin']), updateBatch);
-router.delete('/batches/:id', authenticate, authorize(['admin']), deleteBatch);
+
 
 
 router.post('/nationalities', authenticate, authorize(['admin']), createNationality);
@@ -171,14 +165,14 @@ router.get('/menus', getMenus);
 
 // Batch routes
 router.get('/batches', authenticate, batchController.getBatches);
-router.post('/batches', authenticate, batchController.createBatch);
+router.post('/batches', authenticate, authorize(['admin']), batchController.createBatch);
 router.get('/batches/:id', authenticate, batchController.getBatchById);
-router.put('/batches/:id', authenticate, batchController.updateBatch);
-router.delete('/batches/:id', authenticate, batchController.deleteBatch);
-router.get('/batches/analytics', authenticate, batchController.getBatchAnalytics);
+router.put('/batches/:id', authenticate, authorize(['admin']), batchController.updateBatch);
+router.delete('/batches/:id', authenticate, authorize(['admin']), batchController.deleteBatch);
+router.get('/batches/analytics', authenticate, authorize(['admin']), batchController.getBatchAnalytics);
 router.get('/batches/:batchId/students', authenticate, batchController.getBatchStudents);
-router.post('/batches/:batchId/students/:studentId', authenticate, batchController.addStudentToBatch);
-router.delete('/batches/:batchId/students/:studentId', authenticate, batchController.removeStudentFromBatch);
+router.post('/batches/:batchId/students/:studentId', authenticate, authorize(['admin']), batchController.addStudentToBatch);
+router.delete('/batches/:batchId/students/:studentId', authenticate, authorize(['admin']), batchController.removeStudentFromBatch);
 
 // Payment routes
 router.post('/payments', paymentController.createPayment);

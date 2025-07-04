@@ -16,9 +16,10 @@ export const getBatches = async (req, res) => {
             ];
         }
 
+        // Ensure course is always populated
         const batches = await Batch.find(query).populate('course');
 
-        // Get analytics data
+        // Get analytics data (optional, keep if used by frontend)
         const totalBatches = await Batch.countDocuments();
         const activeBatches = await Batch.countDocuments({ status: 'active' });
         const totalStudents = await Student.countDocuments();
@@ -43,7 +44,7 @@ export const getBatches = async (req, res) => {
                 totalStudents,
                 classesToday,
                 averageCapacity: batches.reduce((acc, batch) =>
-                    acc + (batch.currentEnrollment / batch.maxCapacity) * 100, 0) / batches.length
+                    acc + (batch.currentEnrollment / batch.maxCapacity) * 100, 0) / (batches.length || 1)
             }
         });
     } catch (error) {
