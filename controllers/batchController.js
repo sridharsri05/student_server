@@ -119,8 +119,9 @@ export const deleteBatch = async (req, res) => {
 // Get batch schedule
 export const getBatchSchedule = async (req, res) => {
     try {
-        const { startDate, endDate } = req.query;
-        const query = { status: 'active' };
+        const { startDate, endDate, status } = req.query;
+        const query = {};
+        if (status) query.status = status;
 
         if (startDate && endDate) {
             query.startDate = { $lte: new Date(endDate) };
