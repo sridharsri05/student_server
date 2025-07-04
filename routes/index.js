@@ -25,8 +25,6 @@ import {
 } from '../controllers/studentController.js';
 
 import {
-    initiatePayment, getPayments,
-    addEMIPayment, getEMIPayments,
     generateInvoice, generateReceipt,
     sendPaymentReminder
 } from '../controllers/paymentController.js';
@@ -38,6 +36,8 @@ import Payment from '../models/Payment.js';
 import { getMenus } from '../controllers/menuController.js';
 import * as batchController from '../controllers/batchController.js';
 import * as paymentController from '../controllers/paymentController.js';
+import * as feeController from '../controllers/feeController.js';
+import * as whatsappController from '../controllers/whatsappController.js';
 
 const router = express.Router();
 
@@ -95,11 +95,10 @@ router.put('/students/:id', authenticate, authorize(['admin']), updateStudent);
 router.delete('/students/:id', authenticate, authorize(['admin']), deleteStudent);
 
 // ----- Payments -----
-router.post('/payments/initiate', authenticate, authorize(['admin']), initiatePayment);
-router.get('/payments', authenticate, authorize(['admin']), getPayments);
-
-router.post('/payments/emi', authenticate, authorize(['admin']), addEMIPayment);
-router.get('/payments/emi', authenticate, authorize(['admin']), getEMIPayments);
+router.post('/payments', paymentController.createPayment);
+router.get('/payments', paymentController.getPayments);
+router.post('/payments/emi', paymentController.addEMIPayment);
+router.get('/payments/emi', paymentController.getEMIPayments);
 
 // ----- PDF -----
 router.get('/pdf/invoice/:studentId/:paymentId', authenticate, authorize(['admin']), generateInvoice);
@@ -108,6 +107,9 @@ router.get('/pdf/receipt/:studentId/:paymentId', authenticate, authorize(['admin
 // ----- WhatsApp Reminder -----
 router.post('/reminder/:studentId', authenticate, authorize(['admin']), sendPaymentReminder);
 
+// ----- WhatsApp Messaging -----
+router.post('/whatsapp/send', authenticate, authorize(['admin']), whatsappController.sendMessage);
+router.post('/whatsapp/broadcast', authenticate, authorize(['admin']), whatsappController.broadcastMessage);
 
 // ----- Admin Analytics -----
 // Get summary of students and payments
@@ -176,8 +178,6 @@ router.post('/batches/:batchId/students/:studentId', authenticate, authorize(['a
 router.delete('/batches/:batchId/students/:studentId', authenticate, authorize(['admin']), batchController.removeStudentFromBatch);
 
 // Payment routes
-router.post('/payments', paymentController.createPayment);
-router.get('/payments', paymentController.getPayments);
 router.get('/payments/analytics', paymentController.getPaymentAnalytics);
 router.get('/payments/report', paymentController.generatePaymentReport);
 router.get('/payments/pending', paymentController.getPendingPayments);
@@ -185,5 +185,12 @@ router.get('/payments/:id', paymentController.getPaymentById);
 router.patch('/payments/:id/status', paymentController.updatePaymentStatus);
 router.get('/payments/:studentId/:paymentId/invoice', paymentController.generateInvoice);
 router.get('/payments/:studentId/:paymentId/receipt', paymentController.generateReceipt);
+
+// ----- Fee Structures -----
+router.get('/fee-structures', authenticate, feeController.getFeeStructures);
+router.get('/fee-structures/:id', authenticate, feeController.getFeeStructureById);
+router.post('/fee-structures', authenticate, authorize(['admin']), feeController.createFeeStructure);
+router.put('/fee-structures/:id', authenticate, authorize(['admin']), feeController.updateFeeStructure);
+router.delete('/fee-structures/:id', authenticate, authorize(['admin']), feeController.deleteFeeStructure);
 
 export default router;
