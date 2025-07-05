@@ -84,42 +84,58 @@ export const getEMIPayments = async (_, res) => {
 export const generateInvoice = async (req, res) => {
     try {
         const { studentId, paymentId } = req.params;
-        const student = await Student.findById(studentId);
-        const payment = await Payment.findById(paymentId);
+        console.log(`Generating invoice for student: ${studentId}, payment: ${paymentId}`);
 
-        if (!student || !payment) {
-            return res.status(404).json({ error: 'Student or Payment not found' });
+        const student = await Student.findById(studentId);
+        if (!student) {
+            console.error(`Student not found: ${studentId}`);
+            return res.status(404).json({ error: 'Student not found' });
         }
 
+        const payment = await Payment.findById(paymentId);
+        if (!payment) {
+            console.error(`Payment not found: ${paymentId}`);
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+
+        console.log('Found student and payment, generating PDF...');
         const pdfBuffer = await generateInvoicePDF(student, payment);
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=invoice-${payment.invoiceNumber}.pdf`);
+        res.setHeader('Content-Disposition', `attachment; filename=invoice-${payment.invoiceNumber || paymentId}.pdf`);
         res.send(pdfBuffer);
     } catch (error) {
         console.error('Error generating invoice:', error);
-        res.status(500).json({ error: 'Failed to generate invoice' });
+        res.status(500).json({ error: 'Failed to generate invoice', details: error.message });
     }
 };
 
 export const generateReceipt = async (req, res) => {
     try {
         const { studentId, paymentId } = req.params;
-        const student = await Student.findById(studentId);
-        const payment = await Payment.findById(paymentId);
+        console.log(`Generating receipt for student: ${studentId}, payment: ${paymentId}`);
 
-        if (!student || !payment) {
-            return res.status(404).json({ error: 'Student or Payment not found' });
+        const student = await Student.findById(studentId);
+        if (!student) {
+            console.error(`Student not found: ${studentId}`);
+            return res.status(404).json({ error: 'Student not found' });
         }
 
+        const payment = await Payment.findById(paymentId);
+        if (!payment) {
+            console.error(`Payment not found: ${paymentId}`);
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+
+        console.log('Found student and payment, generating receipt PDF...');
         const pdfBuffer = await generateReceiptPDF(student, payment);
 
         res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', `attachment; filename=receipt-${payment.receiptNumber}.pdf`);
+        res.setHeader('Content-Disposition', `attachment; filename=receipt-${payment.receiptNumber || paymentId}.pdf`);
         res.send(pdfBuffer);
     } catch (error) {
         console.error('Error generating receipt:', error);
-        res.status(500).json({ error: 'Failed to generate receipt' });
+        res.status(500).json({ error: 'Failed to generate receipt', details: error.message });
     }
 };
 

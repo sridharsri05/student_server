@@ -63,9 +63,17 @@ const studentSchema = new mongoose.Schema({
     },
     joinDate: { type: Date },
     createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now }
-}, {
-    timestamps: true
+    updatedAt: { type: Date, default: Date.now },
+
+    // Add Stripe customer ID for payment integration
+    stripeCustomerId: { type: String },
+    paymentMethods: [{ 
+        provider: String, 
+        type: String, 
+        lastFour: String, 
+        expiryDate: String, 
+        isDefault: Boolean 
+    }],
 });
 
 // Pre-save middleware to calculate remaining amount

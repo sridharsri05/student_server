@@ -28,12 +28,12 @@ const paymentSchema = new mongoose.Schema({
     installmentMonths: { type: Number, default: 1 },
     paymentMethod: {
         type: String,
-        enum: ['cash', 'card', 'upi', 'bank_transfer', 'cheque'],
+        enum: ['cash', 'card', 'upi', 'bank_transfer', 'cheque', 'online'],
         required: true
     },
     status: {
         type: String,
-        enum: ['completed', 'pending', 'failed', 'refunded'],
+        enum: ['completed', 'pending', 'failed', 'refunded', 'processing'],
         default: 'pending'
     },
     dueDate: { type: Date },
@@ -44,7 +44,24 @@ const paymentSchema = new mongoose.Schema({
     transactionId: String,
     feeStructure: { type: mongoose.Schema.Types.ObjectId, ref: 'FeeStructure' },
     createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now }
+    updatedAt: { type: Date, default: Date.now },
+
+    // Payment gateway fields
+    gatewayProvider: {
+        type: String,
+        enum: ['stripe', 'razorpay', 'paypal', null],
+        default: null
+    },
+    gatewayPaymentId: String,
+    gatewayOrderId: String,
+    gatewayResponse: String,
+    currency: {
+        type: String,
+        enum: ['INR', 'USD', 'EUR', 'GBP'],
+        default: 'INR'
+    },
+    paymentUrl: String, // For redirect payment URLs
+    lastPaymentAttempt: Date
 });
 
 // Calculate remaining amount before saving
@@ -52,9 +69,10 @@ paymentSchema.pre('save', function (next) {
     this.remainingAmount = this.totalAmount - this.depositAmount;
     this.updatedAt = new Date();
 
-    // Validate dueDate only if payment is not completed
-    if (this.status !== 'completed' && !this.dueDate) {
-        const error = new Error('Due date is required for non-completed payments');
+    // Validate dueDate only if payment is pending
+    // No need for due date on completed or failed payments
+    if (this.status === 'pending' && !this.dueDate) {
+        const error = new Error('Due date is required for pending payments');
         return next(error);
     }
 

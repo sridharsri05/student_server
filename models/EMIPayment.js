@@ -17,12 +17,12 @@ const emiPaymentSchema = new mongoose.Schema({
     paidDate: Date,
     status: {
         type: String,
-        enum: ['pending', 'paid', 'overdue', 'cancelled'],
+        enum: ['pending', 'paid', 'overdue', 'cancelled', 'processing'],
         default: 'pending'
     },
     paymentMethod: {
         type: String,
-        enum: ['cash', 'card', 'upi', 'bank_transfer', 'cheque']
+        enum: ['cash', 'card', 'upi', 'bank_transfer', 'cheque', 'online']
     },
     transactionId: String,
     receiptNumber: String,
@@ -34,7 +34,27 @@ const emiPaymentSchema = new mongoose.Schema({
         status: String
     }],
     createdAt: { type: Date, default: Date.now },
-    updatedAt: { type: Date, default: Date.now }
+    updatedAt: { type: Date, default: Date.now },
+
+    // Payment gateway fields
+    gatewayProvider: {
+        type: String,
+        enum: ['stripe', 'razorpay', 'paypal', null],
+        default: null
+    },
+    gatewayPaymentId: String,
+    gatewayResponse: String,
+    currency: {
+        type: String,
+        enum: ['INR', 'USD', 'EUR', 'GBP'],
+        default: 'INR'
+    },
+    paymentUrl: String,
+    paymentAttempts: [{
+        date: Date,
+        status: String,
+        gatewayResponse: String
+    }]
 });
 
 // Auto-update status based on due date
@@ -42,7 +62,7 @@ emiPaymentSchema.pre('save', function (next) {
     const now = new Date();
     if (this.paidDate) {
         this.status = 'paid';
-    } else if (now > this.dueDate) {
+    } else if (now > this.dueDate && this.status !== 'processing') {
         this.status = 'overdue';
     }
     this.updatedAt = now;

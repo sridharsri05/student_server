@@ -56,17 +56,17 @@ export const generateInvoicePDF = async (student, payment) => {
 
         // Invoice details
         applyBodyStyle(doc);
-        doc.text(`Invoice #: INV-${payment.invoiceNumber}`, 50, 120);
+        doc.text(`Invoice #: INV-${payment.invoiceNumber || payment._id}`, 50, 120);
         doc.text(`Date: ${format(new Date(), 'PPP')}`, 50, 140);
-        doc.text(`Due Date: ${format(new Date(payment.dueDate), 'PPP')}`, 50, 160);
+        doc.text(`Due Date: ${payment.dueDate ? format(new Date(payment.dueDate), 'PPP') : 'N/A'}`, 50, 160);
 
         // Student details
         doc.moveDown(2);
         doc.font('Helvetica-Bold').text('Bill To:', 50);
         applyBodyStyle(doc);
-        doc.text(student.name);
-        doc.text(student.email);
-        doc.text(student.phone);
+        doc.text(student.name || 'Student');
+        doc.text(student.email || 'N/A');
+        doc.text(student.phone || 'N/A');
 
         // Payment details table
         doc.moveDown(2);
@@ -74,7 +74,7 @@ export const generateInvoicePDF = async (student, payment) => {
 
         const headers = ['Description', 'Amount'];
         const rows = [
-            [`Course Fee - ${payment.courseName}`, `₹${payment.totalAmount.toLocaleString()}`]
+            [`Course Fee - ${payment.courseName || 'Course'}`, `₹${(payment.totalAmount || 0).toLocaleString()}`]
         ];
 
         if (payment.depositAmount > 0) {
@@ -87,7 +87,7 @@ export const generateInvoicePDF = async (student, payment) => {
         doc.moveDown(3);
         doc.font('Helvetica-Bold')
             .text('Total Due:', 300)
-            .text(`₹${(payment.totalAmount - payment.depositAmount).toLocaleString()}`, 400);
+            .text(`₹${((payment.totalAmount || 0) - (payment.depositAmount || 0)).toLocaleString()}`, 400);
 
         // Installment schedule if applicable
         if (payment.installments?.length > 0) {
@@ -98,9 +98,9 @@ export const generateInvoicePDF = async (student, payment) => {
             const installmentHeaders = ['Month', 'Due Date', 'Amount', 'Status'];
             const installmentRows = payment.installments.map(inst => [
                 `Month ${inst.month}`,
-                format(new Date(inst.dueDate), 'PPP'),
-                `₹${inst.amount.toLocaleString()}`,
-                inst.status
+                inst.dueDate ? format(new Date(inst.dueDate), 'PPP') : 'N/A',
+                `₹${(inst.amount || 0).toLocaleString()}`,
+                inst.status || 'pending'
             ]);
 
             createTable(doc, installmentHeaders, installmentRows, 50, doc.y + 20, [100, 150, 100, 100]);
@@ -153,23 +153,23 @@ export const generateReceiptPDF = async (student, payment) => {
 
         // Receipt details
         applyBodyStyle(doc);
-        doc.text(`Receipt #: RCP-${payment.receiptNumber}`, 50, 120);
+        doc.text(`Receipt #: RCP-${payment.receiptNumber || payment._id}`, 50, 120);
         doc.text(`Date: ${format(new Date(), 'PPP')}`, 50, 140);
-        doc.text(`Payment Method: ${payment.paymentMethod}`, 50, 160);
+        doc.text(`Payment Method: ${payment.paymentMethod || 'N/A'}`, 50, 160);
 
         // Student details
         doc.moveDown(2);
         doc.font('Helvetica-Bold').text('Received From:', 50);
         applyBodyStyle(doc);
-        doc.text(student.name);
-        doc.text(student.email);
+        doc.text(student.name || 'Student');
+        doc.text(student.email || 'N/A');
 
         // Payment details table
         doc.moveDown(2);
         const headers = ['Description', 'Amount'];
         const rows = [[
-            payment.description || `Payment for ${payment.courseName}`,
-            `₹${payment.amount.toLocaleString()}`
+            payment.description || `Payment for ${payment.courseName || 'Course'}`,
+            `₹${(payment.amount || payment.depositAmount || 0).toLocaleString()}`
         ]];
 
         createTable(doc, headers, rows, 50, doc.y + 20, [300, 150]);
@@ -178,7 +178,7 @@ export const generateReceiptPDF = async (student, payment) => {
         doc.moveDown(3);
         doc.font('Helvetica-Bold')
             .text('Amount Received:', 300)
-            .text(`₹${payment.amount.toLocaleString()}`, 400);
+            .text(`₹${(payment.amount || payment.depositAmount || 0).toLocaleString()}`, 400);
 
         // Authentication
         doc.moveDown(2);

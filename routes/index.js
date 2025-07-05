@@ -39,6 +39,7 @@ import * as paymentController from '../controllers/paymentController.js';
 import * as feeController from '../controllers/feeController.js';
 import * as whatsappController from '../controllers/whatsappController.js';
 import * as discountController from '../controllers/discountController.js';
+import * as stripeController from '../controllers/stripeController.js';
 
 const router = express.Router();
 
@@ -203,5 +204,11 @@ router.put('/discounts/:id', authenticate, authorize(['admin']), discountControl
 router.delete('/discounts/:id', authenticate, authorize(['admin']), discountController.deleteDiscount);
 router.post('/discounts/validate', authenticate, discountController.validateDiscountCode);
 router.post('/discounts/apply', authenticate, discountController.applyDiscount);
+
+// Payment Gateway Routes
+router.post('/stripe/create-payment-intent', authenticate, stripeController.createPaymentIntent);
+router.post('/stripe/create-emi-payment-intent', authenticate, stripeController.createEMIPaymentIntent);
+router.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeController.handleWebhook);
+router.get('/stripe/payment-methods/:studentId', authenticate, stripeController.getPaymentMethods);
 
 export default router;
