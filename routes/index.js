@@ -101,6 +101,7 @@ router.post('/payments', paymentController.createPayment);
 router.get('/payments', paymentController.getPayments);
 router.post('/payments/emi', paymentController.addEMIPayment);
 router.get('/payments/emi', paymentController.getEMIPayments);
+router.delete('/payments/:id', authenticate, authorize(['admin']), paymentController.deletePayment);
 
 // ----- PDF -----
 router.get('/pdf/invoice/:studentId/:paymentId', authenticate, authorize(['admin']), generateInvoice);

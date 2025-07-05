@@ -436,3 +436,54 @@ const getAnalyticsSummary = async (query = {}) => {
         failedPayments: statusCounts['failed'] || 0
     };
 };
+
+/**
+ * Delete a payment by ID
+ * @route DELETE /payments/:id
+ * @access Private (Admin only)
+ */
+export const deletePayment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        
+        const payment = await Payment.findById(id);
+        
+        if (!payment) {
+            return res.status(404).json({ message: 'Payment not found' });
+        }
+
+        // Check if payment has related EMI payments
+        const relatedEMIs = await EMIPayment.find({ payment: id });
+        
+        // Delete related EMI payments if any
+        if (relatedEMIs.length > 0) {
+            await EMIPayment.deleteMany({ payment: id });
+        }
+        
+        // Delete the payment
+        await Payment.findByIdAndDelete(id);
+        
+        // If payment was completed, update student status
+        if (payment.status === 'completed' && payment.student) {
+            // Check if student has any other completed payments
+            const otherCompletedPayments = await Payment.countDocuments({
+                student: payment.student,
+                status: 'completed',
+                _id: { $ne: id }
+            });
+            
+            if (otherCompletedPayments === 0) {
+                // No other completed payments, update student status
+                await Student.findByIdAndUpdate(payment.student, {
+                    status: 'active',
+                    feeStatus: 'pending'
+                });
+            }
+        }
+        
+        res.json({ message: 'Payment deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting payment:', error);
+        res.status(500).json({ message: error.message });
+    }
+};
