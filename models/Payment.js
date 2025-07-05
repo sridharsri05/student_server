@@ -36,7 +36,7 @@ const paymentSchema = new mongoose.Schema({
         enum: ['completed', 'pending', 'failed', 'refunded'],
         default: 'pending'
     },
-    dueDate: { type: Date, required: true },
+    dueDate: { type: Date },
     notes: String,
     installments: [installmentSchema],
     invoiceNumber: { type: String, unique: true },
@@ -51,6 +51,13 @@ const paymentSchema = new mongoose.Schema({
 paymentSchema.pre('save', function (next) {
     this.remainingAmount = this.totalAmount - this.depositAmount;
     this.updatedAt = new Date();
+
+    // Validate dueDate only if payment is not completed
+    if (this.status !== 'completed' && !this.dueDate) {
+        const error = new Error('Due date is required for non-completed payments');
+        return next(error);
+    }
+
     next();
 });
 
