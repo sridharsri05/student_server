@@ -27,6 +27,10 @@ export const createPaymentIntent = async (req, res) => {
             if (amount <= 0) {
                 return res.status(400).json({ error: 'Payment amount must be greater than 0' });
             }
+
+            // Update the payment's remainingAmount to match the totalAmount for display purposes
+            payment.remainingAmount = payment.totalAmount;
+            await payment.save();
         } else if (amount <= 0) {
             return res.status(400).json({ error: 'Payment amount must be greater than 0' });
         }
