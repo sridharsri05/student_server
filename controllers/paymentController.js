@@ -300,8 +300,8 @@ export const updatePaymentStatus = async (req, res) => {
         // Update student status if payment is completed
         if (status === 'completed') {
             await Student.findByIdAndUpdate(payment.student, {
-                status: 'active-paid',
-                feeStatus: 'paid'
+                status: 'active',
+                feeStatus: 'complete'
             });
         }
 

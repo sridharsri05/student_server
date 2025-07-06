@@ -17,9 +17,17 @@ export const createPaymentIntent = async (req, res) => {
 
         // Amount in smallest currency unit (cents/paisa)
         // Stripe requires amounts in the smallest currency unit
-        const amount = Math.round(payment.remainingAmount * 100);
+        let amount = Math.round(payment.remainingAmount * 100);
 
-        if (amount <= 0) {
+        // If remainingAmount is 0 but this is an online payment, use the total amount
+        // This allows students to pay the full amount online in one go
+        if (amount <= 0 && payment.paymentMethod === 'online') {
+            amount = Math.round(payment.totalAmount * 100);
+
+            if (amount <= 0) {
+                return res.status(400).json({ error: 'Payment amount must be greater than 0' });
+            }
+        } else if (amount <= 0) {
             return res.status(400).json({ error: 'Payment amount must be greater than 0' });
         }
 
