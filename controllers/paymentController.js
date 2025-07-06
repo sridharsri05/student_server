@@ -81,6 +81,60 @@ export const getEMIPayments = async (_, res) => {
     res.json(emiPayments);
 };
 
+export const updateEMIPayment = async (req, res) => {
+    try {
+        const { id } = req.params;
+        const updates = req.body;
+
+        // Validate status if provided
+        if (updates.status && !['pending', 'paid', 'overdue', 'cancelled', 'processing'].includes(updates.status)) {
+            return res.status(400).json({
+                error: `Payment validation failed: status: \`${updates.status}\` is not a valid enum value for path \`status\`.`
+            });
+        }
+
+        const emiPayment = await EMIPayment.findById(id);
+
+        if (!emiPayment) {
+            return res.status(404).json({ error: 'EMI Payment not found' });
+        }
+
+        // Update the EMI payment
+        Object.keys(updates).forEach(key => {
+            emiPayment[key] = updates[key];
+        });
+
+        await emiPayment.save();
+
+        // If payment is marked as paid, check if all EMIs are paid
+        if (updates.status === 'paid') {
+            const mainPayment = await Payment.findById(emiPayment.payment);
+            if (mainPayment) {
+                const pendingEMIs = await EMIPayment.countDocuments({
+                    payment: mainPayment._id,
+                    status: { $in: ['pending', 'overdue'] }
+                });
+
+                if (pendingEMIs === 0) {
+                    mainPayment.status = 'completed';
+                    await mainPayment.save();
+
+                    // Update student status
+                    await Student.findByIdAndUpdate(mainPayment.student, {
+                        status: 'active',
+                        feeStatus: 'complete'
+                    });
+                }
+            }
+        }
+
+        res.json(emiPayment);
+    } catch (error) {
+        console.error('Error updating EMI payment:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
 export const generateInvoice = async (req, res) => {
     try {
         const { studentId, paymentId } = req.params;
@@ -445,24 +499,24 @@ const getAnalyticsSummary = async (query = {}) => {
 export const deletePayment = async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const payment = await Payment.findById(id);
-        
+
         if (!payment) {
             return res.status(404).json({ message: 'Payment not found' });
         }
 
         // Check if payment has related EMI payments
         const relatedEMIs = await EMIPayment.find({ payment: id });
-        
+
         // Delete related EMI payments if any
         if (relatedEMIs.length > 0) {
             await EMIPayment.deleteMany({ payment: id });
         }
-        
+
         // Delete the payment
         await Payment.findByIdAndDelete(id);
-        
+
         // If payment was completed, update student status
         if (payment.status === 'completed' && payment.student) {
             // Check if student has any other completed payments
@@ -471,7 +525,7 @@ export const deletePayment = async (req, res) => {
                 status: 'completed',
                 _id: { $ne: id }
             });
-            
+
             if (otherCompletedPayments === 0) {
                 // No other completed payments, update student status
                 await Student.findByIdAndUpdate(payment.student, {
@@ -480,7 +534,7 @@ export const deletePayment = async (req, res) => {
                 });
             }
         }
-        
+
         res.json({ message: 'Payment deleted successfully' });
     } catch (error) {
         console.error('Error deleting payment:', error);

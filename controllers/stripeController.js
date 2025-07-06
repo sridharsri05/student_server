@@ -162,8 +162,8 @@ async function handlePaymentSuccess(paymentIntent) {
 
                 // Update student status
                 await Student.findByIdAndUpdate(payment.student, {
-                    status: 'active-paid',
-                    feeStatus: 'paid'
+                    status: 'active',
+                    feeStatus: 'complete'
                 });
             }
         }
@@ -198,8 +198,8 @@ async function handlePaymentSuccess(paymentIntent) {
 
                         // Update student status
                         await Student.findByIdAndUpdate(mainPayment.student, {
-                            status: 'active-paid',
-                            feeStatus: 'paid'
+                            status: 'active',
+                            feeStatus: 'complete'
                         });
                     }
                 }
