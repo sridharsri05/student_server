@@ -108,6 +108,10 @@ router.delete('/payments/:id', authenticate, authorize(['admin']), paymentContro
 router.get('/pdf/invoice/:studentId/:paymentId', authenticate, authorize(['admin']), generateInvoice);
 router.get('/pdf/receipt/:studentId/:paymentId', authenticate, authorize(['admin']), generateReceipt);
 
+// Add additional routes for the frontend to use
+router.get('/payments/:studentId/:paymentId/invoice', generateInvoice);
+router.get('/payments/:studentId/:paymentId/receipt', generateReceipt);
+
 // ----- WhatsApp Reminder -----
 router.post('/reminder/:studentId', authenticate, authorize(['admin']), sendPaymentReminder);
 
