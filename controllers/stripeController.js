@@ -278,5 +278,5 @@ export const getConfig = async (req, res) => {
   } catch (error) {
     console.error('Error getting Stripe config:', error);
     res.status(500).json({ error: 'Failed to get Stripe configuration' });
-  }
+    }
 }; 
