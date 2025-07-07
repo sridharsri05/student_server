@@ -1,6 +1,6 @@
 import { stripe, stripeConfig } from '../config/stripe.js';
-import Payment from '../models/Payment.js';
 import Student from '../models/Student.js';
+import Payment from '../models/Payment.js';
 import EMIPayment from '../models/EMIPayment.js';
 
 // Create a payment intent for Stripe
@@ -8,66 +8,47 @@ export const createPaymentIntent = async (req, res) => {
     try {
         const { paymentId, currency = stripeConfig.currency.default } = req.body;
 
-        // Get payment details from database
-        const payment = await Payment.findById(paymentId).populate('student');
-
+        // Fetch payment details
+        const payment = await Payment.findById(paymentId);
         if (!payment) {
             return res.status(404).json({ error: 'Payment not found' });
         }
 
-        // Amount in smallest currency unit (cents/paisa)
-        // Stripe requires amounts in the smallest currency unit
-        let amount = Math.round(payment.remainingAmount * 100);
-
-        // If remainingAmount is 0 but this is an online payment, use the total amount
-        // This allows students to pay the full amount online in one go
-        if (amount <= 0 && payment.paymentMethod === 'online') {
-            amount = Math.round(payment.totalAmount * 100);
-
-            if (amount <= 0) {
-                return res.status(400).json({ error: 'Payment amount must be greater than 0' });
-            }
-
-            // Update the payment's remainingAmount to match the totalAmount for display purposes
-            payment.remainingAmount = payment.totalAmount;
-            await payment.save();
-        } else if (amount <= 0) {
-            return res.status(400).json({ error: 'Payment amount must be greater than 0' });
+        // Get student details for the payment
+        const student = await Student.findById(payment.student);
+        if (!student) {
+            return res.status(404).json({ error: 'Student not found' });
         }
+
+        // Stripe requires amounts in the smallest currency unit
+        const amount = Math.round((payment.remainingAmount || payment.totalAmount) * 100);
 
         // Create payment intent
         const paymentIntent = await stripe.paymentIntents.create({
             amount,
             currency,
+            automatic_payment_methods: {
+                enabled: true,
+            },
             metadata: {
                 paymentId: payment._id.toString(),
-                studentId: payment.student._id.toString(),
-                studentName: payment.student.name,
-                invoiceNumber: payment.invoiceNumber
+                studentId: student._id.toString(),
             },
-            receipt_email: payment.student.email,
-            description: `Payment for ${payment.courseName}`,
         });
 
-        // Save the payment intent ID to our payment record
-        payment.gatewayPaymentId = paymentIntent.id;
+        // Update payment with Stripe details
         payment.gatewayProvider = 'stripe';
+        payment.gatewayPaymentId = paymentIntent.id;
         await payment.save();
 
-        // Return client secret and payment details to frontend
+        // Return client secret
         res.json({
             clientSecret: paymentIntent.client_secret,
-            paymentId: payment._id,
-            amount: amount / 100,
-            currency,
             publicKey: stripeConfig.publicKey
         });
     } catch (error) {
         console.error('Error creating payment intent:', error);
-        res.status(500).json({
-            error: 'Failed to create payment intent',
-            details: error.message
-        });
+        res.status(500).json({ error: error.message });
     }
 };
 
@@ -286,4 +267,16 @@ export const getPaymentMethods = async (req, res) => {
             details: error.message
         });
     }
+};
+
+// Get Stripe configuration
+export const getConfig = async (req, res) => {
+  try {
+    res.json({
+      publicKey: stripeConfig.publicKey
+    });
+  } catch (error) {
+    console.error('Error getting Stripe config:', error);
+    res.status(500).json({ error: 'Failed to get Stripe configuration' });
+  }
 }; 
