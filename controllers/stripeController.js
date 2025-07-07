@@ -233,28 +233,74 @@ export const manualPaymentStatusUpdate = async (req, res) => {
     try {
         const { paymentId, paymentIntentId } = req.body;
 
+        // Validate input
+        if (!paymentId || !paymentIntentId) {
+            return res.status(400).json({
+                error: 'Payment ID and Payment Intent ID are required'
+            });
+        }
+
+        // Find the payment in the database
+        const payment = await Payment.findOne({
+            gatewayPaymentId: paymentIntentId
+        });
+
+        if (!payment) {
+            return res.status(404).json({
+                error: 'Payment not found',
+                details: 'No payment found with the given Payment Intent ID'
+            });
+        }
+
         // Verify the payment intent with Stripe
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-        if (paymentIntent.status === 'succeeded') {
-            // Use existing success handler logic
-            await handlePaymentSuccess(paymentIntent);
-
-            return res.status(200).json({ 
-                message: 'Payment status updated successfully',
-                status: 'completed'
-            });
-        } else {
-            return res.status(400).json({ 
-                message: 'Payment not yet succeeded', 
-                currentStatus: paymentIntent.status 
+        // Check if payment is already completed to avoid duplicate processing
+        if (payment.status === 'completed') {
+            return res.status(200).json({
+                message: 'Payment already completed',
+                status: payment.status
             });
         }
+
+        // Ensure payment intent is actually succeeded
+        if (paymentIntent.status !== 'succeeded') {
+            return res.status(400).json({
+                error: 'Payment not yet succeeded',
+                currentStatus: paymentIntent.status
+            });
+        }
+
+        // Update payment status
+        payment.status = 'completed';
+        payment.transactionId = paymentIntentId;
+        payment.paidDate = new Date();
+
+        // Generate receipt number if not already generated
+        if (!payment.receiptNumber) {
+            const count = await Payment.countDocuments();
+            payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
+        }
+
+        // Save updated payment
+        await payment.save();
+
+        // Update student status
+        await Student.findByIdAndUpdate(payment.student, {
+            status: 'active',
+            feeStatus: 'complete'
+        });
+
+        res.status(200).json({
+            message: 'Payment status updated successfully',
+            status: 'completed',
+            payment
+        });
     } catch (error) {
         console.error('Error in manual payment status update:', error);
-        res.status(500).json({ 
-            error: 'Failed to update payment status', 
-            details: error.message 
+        res.status(500).json({
+            error: 'Failed to update payment status',
+            details: error.message
         });
     }
 };
@@ -302,12 +348,12 @@ export const getPaymentMethods = async (req, res) => {
 
 // Get Stripe configuration
 export const getConfig = async (req, res) => {
-  try {
-    res.json({
-      publicKey: stripeConfig.publicKey
-    });
-  } catch (error) {
-    console.error('Error getting Stripe config:', error);
-    res.status(500).json({ error: 'Failed to get Stripe configuration' });
+    try {
+        res.json({
+            publicKey: stripeConfig.publicKey
+        });
+    } catch (error) {
+        console.error('Error getting Stripe config:', error);
+        res.status(500).json({ error: 'Failed to get Stripe configuration' });
     }
 }; 
