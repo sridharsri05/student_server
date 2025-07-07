@@ -216,5 +216,7 @@ router.post('/stripe/create-payment-intent', authenticate, stripeController.crea
 router.post('/stripe/create-emi-payment-intent', authenticate, stripeController.createEMIPaymentIntent);
 router.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeController.handleWebhook);
 router.get('/stripe/payment-methods/:studentId', authenticate, stripeController.getPaymentMethods);
+// Stripe manual payment status update
+router.post('/stripe/manual-update', authenticate, stripeController.manualPaymentStatusUpdate);
 
 export default router;

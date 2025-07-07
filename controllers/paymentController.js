@@ -285,29 +285,58 @@ export const createPayment = async (req, res) => {
 export const updatePaymentStatus = async (req, res) => {
     try {
         const { id } = req.params;
-        const { status, notes } = req.body;
+        const { status, transactionId } = req.body;
 
-        const payment = await Payment.findByIdAndUpdate(
-            id,
-            { status, notes, updatedAt: new Date() },
-            { new: true }
-        );
-
-        if (!payment) {
-            return res.status(404).json({ message: 'Payment not found' });
+        // Validate status
+        const validStatuses = ['completed', 'pending', 'failed', 'refunded', 'processing'];
+        if (status && !validStatuses.includes(status)) {
+            return res.status(400).json({
+                error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
+            });
         }
 
-        // Update student status if payment is completed
+        const payment = await Payment.findById(id);
+        if (!payment) {
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+
+        // Update status and transaction ID if provided
+        if (status) {
+            payment.status = status;
+        }
+        if (transactionId) {
+            payment.transactionId = transactionId;
+        }
+
+        // Set paid date if status is completed
         if (status === 'completed') {
+            payment.paidDate = new Date();
+
+            // Update student status
             await Student.findByIdAndUpdate(payment.student, {
                 status: 'active',
                 feeStatus: 'complete'
             });
+
+            // Generate receipt number if not already generated
+            if (!payment.receiptNumber) {
+                const count = await Payment.countDocuments();
+                payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
+            }
         }
 
-        res.json(payment);
+        await payment.save();
+
+        res.json({
+            message: 'Payment status updated successfully',
+            payment
+        });
     } catch (error) {
-        res.status(400).json({ message: error.message });
+        console.error('Error updating payment status:', error);
+        res.status(500).json({
+            error: 'Failed to update payment status',
+            details: error.message
+        });
     }
 };
 
@@ -499,24 +528,24 @@ const getAnalyticsSummary = async (query = {}) => {
 export const deletePayment = async (req, res) => {
     try {
         const { id } = req.params;
-        
+
         const payment = await Payment.findById(id);
-        
+
         if (!payment) {
             return res.status(404).json({ message: 'Payment not found' });
         }
 
         // Check if payment has related EMI payments
         const relatedEMIs = await EMIPayment.find({ payment: id });
-        
+
         // Delete related EMI payments if any
         if (relatedEMIs.length > 0) {
             await EMIPayment.deleteMany({ payment: id });
         }
-        
+
         // Delete the payment
         await Payment.findByIdAndDelete(id);
-        
+
         // If payment was completed, update student status
         if (payment.status === 'completed' && payment.student) {
             // Check if student has any other completed payments
@@ -525,7 +554,7 @@ export const deletePayment = async (req, res) => {
                 status: 'completed',
                 _id: { $ne: id }
             });
-            
+
             if (otherCompletedPayments === 0) {
                 // No other completed payments, update student status
                 await Student.findByIdAndUpdate(payment.student, {
@@ -534,7 +563,7 @@ export const deletePayment = async (req, res) => {
                 });
             }
         }
-        
+
         res.json({ message: 'Payment deleted successfully' });
     } catch (error) {
         console.error('Error deleting payment:', error);

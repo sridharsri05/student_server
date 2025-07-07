@@ -228,6 +228,37 @@ async function handlePaymentFailure(paymentIntent) {
     }
 }
 
+// Add this method after handlePaymentFailure function
+export const manualPaymentStatusUpdate = async (req, res) => {
+    try {
+        const { paymentId, paymentIntentId } = req.body;
+
+        // Verify the payment intent with Stripe
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+        if (paymentIntent.status === 'succeeded') {
+            // Use existing success handler logic
+            await handlePaymentSuccess(paymentIntent);
+
+            return res.status(200).json({ 
+                message: 'Payment status updated successfully',
+                status: 'completed'
+            });
+        } else {
+            return res.status(400).json({ 
+                message: 'Payment not yet succeeded', 
+                currentStatus: paymentIntent.status 
+            });
+        }
+    } catch (error) {
+        console.error('Error in manual payment status update:', error);
+        res.status(500).json({ 
+            error: 'Failed to update payment status', 
+            details: error.message 
+        });
+    }
+};
+
 // Get payment methods for a customer
 export const getPaymentMethods = async (req, res) => {
     try {
