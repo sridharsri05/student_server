@@ -240,6 +240,9 @@ export const manualPaymentStatusUpdate = async (req, res) => {
             });
         }
 
+        // Verify the payment intent with Stripe
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
         // Find the payment in the database
         const payment = await Payment.findOne({
             gatewayPaymentId: paymentIntentId
@@ -252,54 +255,39 @@ export const manualPaymentStatusUpdate = async (req, res) => {
             });
         }
 
-        // Verify the payment intent with Stripe
-        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-        // Check if payment is already completed to avoid duplicate processing
-        if (payment.status === 'completed') {
+        // Check if payment is already in a final state
+        if (payment.status === 'completed' || payment.status === 'failed') {
             return res.status(200).json({
-                message: 'Payment already completed',
-                status: payment.status
+                message: 'Payment already processed',
+                currentStatus: payment.status
             });
         }
 
-        // Ensure payment intent is actually succeeded
-        if (paymentIntent.status !== 'succeeded') {
+        // Verify payment intent status
+        if (paymentIntent.status === 'succeeded') {
+            // Update payment status
+            payment.status = 'completed';
+            payment.paidDate = new Date();
+            payment.transactionId = paymentIntent.latest_charge;
+
+            // Save the updated payment
+            await payment.save();
+
+            return res.status(200).json({
+                message: 'Payment status updated successfully',
+                status: 'completed'
+            });
+        } else {
+            // Handle other payment intent statuses
             return res.status(400).json({
-                error: 'Payment not yet succeeded',
+                message: 'Payment not yet succeeded',
                 currentStatus: paymentIntent.status
             });
         }
-
-        // Update payment status
-        payment.status = 'completed';
-        payment.transactionId = paymentIntentId;
-        payment.paidDate = new Date();
-
-        // Generate receipt number if not already generated
-        if (!payment.receiptNumber) {
-            const count = await Payment.countDocuments();
-            payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
-        }
-
-        // Save updated payment
-        await payment.save();
-
-        // Update student status
-        await Student.findByIdAndUpdate(payment.student, {
-            status: 'active',
-            feeStatus: 'complete'
-        });
-
-        res.status(200).json({
-            message: 'Payment status updated successfully',
-            status: 'completed',
-            payment
-        });
     } catch (error) {
-        console.error('Error in manual payment status update:', error);
-        res.status(500).json({
-            error: 'Failed to update payment status',
+        console.error('Error updating payment status:', error);
+        return res.status(500).json({
+            error: 'Internal server error',
             details: error.message
         });
     }
