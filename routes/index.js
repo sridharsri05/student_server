@@ -102,6 +102,7 @@ router.get('/payments', paymentController.getPayments);
 router.post('/payments/emi', paymentController.addEMIPayment);
 router.get('/payments/emi', paymentController.getEMIPayments);
 router.put('/payments/emi/:id', paymentController.updateEMIPayment);
+router.post('/payments/emi/:id/update', paymentController.updateEMIPayment);
 router.delete('/payments/:id', authenticate, authorize(['admin']), paymentController.deletePayment);
 
 // ----- PDF -----
