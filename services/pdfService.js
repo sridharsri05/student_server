@@ -1,42 +1,129 @@
 import PDFDocument from 'pdfkit';
 import fs from 'fs';
 import { format } from 'date-fns';
+import path from 'path';
 
-const NEON_CYAN = '#00D4FF';
+// Modern color scheme
+const BRAND_COLOR = '#0f766e'; // Teal 700
+const ACCENT_COLOR = '#14b8a6'; // Teal 500
+const TEXT_COLOR = '#1f2937'; // Gray 800
+const LIGHT_BG = '#f9fafb'; // Gray 50
 
 /**
  * Common PDF styling utilities
  */
 const applyHeaderStyle = (doc) => {
     doc.font('Helvetica-Bold')
-        .fontSize(20)
-        .fillColor(NEON_CYAN);
+        .fontSize(22)
+        .fillColor(BRAND_COLOR);
+};
+
+const applySubHeaderStyle = (doc) => {
+    doc.font('Helvetica-Bold')
+        .fontSize(16)
+        .fillColor(BRAND_COLOR);
 };
 
 const applyBodyStyle = (doc) => {
     doc.font('Helvetica')
-        .fontSize(12)
-        .fillColor('black');
+        .fontSize(11)
+        .fillColor(TEXT_COLOR);
 };
 
+const applyLabelStyle = (doc) => {
+    doc.font('Helvetica-Bold')
+        .fontSize(11)
+        .fillColor(TEXT_COLOR);
+};
+
+// Draw a branded header with logo
+const drawHeader = (doc, title) => {
+    // Draw brand logo (using vector graphics since we don't have an actual image file)
+    doc.save();
+    doc.translate(50, 40);
+
+    // Draw logo background
+    doc.roundedRect(0, 0, 40, 40, 5)
+        .fillColor(BRAND_COLOR);
+
+    // Draw stylized "S" for Student Registration System
+    doc.fillColor('white')
+        .moveTo(10, 10)
+        .bezierCurveTo(25, 5, 35, 15, 30, 25)
+        .bezierCurveTo(25, 35, 15, 30, 10, 20)
+        .bezierCurveTo(5, 10, 15, 5, 20, 10)
+        .fill();
+
+    doc.restore();
+
+    // Draw company name
+    doc.font('Helvetica-Bold')
+        .fontSize(20)
+        .fillColor(BRAND_COLOR)
+        .text('Student Registration System', 100, 45);
+
+    // Draw document title
+    doc.fontSize(24)
+        .text(title, 400, 45, { align: 'right' });
+
+    // Draw divider line
+    doc.moveTo(50, 80)
+        .lineTo(550, 80)
+        .strokeColor(ACCENT_COLOR)
+        .lineWidth(1)
+        .stroke();
+};
+
+// Create a better looking table with borders and alternating row colors
 const createTable = (doc, headers, rows, startX, startY, colWidths) => {
-    // Draw headers
-    doc.font('Helvetica-Bold').fontSize(10);
+    const rowHeight = 25;
+    const tableWidth = colWidths.reduce((a, b) => a + b, 0);
+
+    // Draw table header background
+    doc.rect(startX, startY, tableWidth, rowHeight)
+        .fillColor(BRAND_COLOR)
+        .fill();
+
+    // Draw header text
+    doc.fillColor('white').font('Helvetica-Bold').fontSize(10);
     headers.forEach((header, i) => {
-        doc.text(header, startX + (colWidths.slice(0, i).reduce((a, b) => a + b, 0)), startY);
+        const xPos = startX + (colWidths.slice(0, i).reduce((a, b) => a + b, 0));
+        doc.text(header, xPos + 5, startY + 8, { width: colWidths[i] - 10 });
     });
 
-    // Draw rows
-    doc.font('Helvetica').fontSize(10);
-    let y = startY + 20;
-    rows.forEach(row => {
+    // Draw rows with alternating background
+    let y = startY + rowHeight;
+    rows.forEach((row, rowIndex) => {
+        // Draw row background
+        if (rowIndex % 2 === 0) {
+            doc.rect(startX, y, tableWidth, rowHeight)
+                .fillColor('#f8fafc')
+                .fill();
+        }
+
+        // Draw cell borders and text
+        doc.fillColor(TEXT_COLOR).font('Helvetica').fontSize(10);
         row.forEach((cell, i) => {
+            const xPos = startX + (colWidths.slice(0, i).reduce((a, b) => a + b, 0));
+
+            // Draw cell text
             doc.text(cell.toString(),
-                startX + (colWidths.slice(0, i).reduce((a, b) => a + b, 0)),
-                y);
+                xPos + 5,
+                y + 8,
+                { width: colWidths[i] - 10 }
+            );
+
+            // Draw cell border
+            doc.rect(xPos, y, colWidths[i], rowHeight)
+                .strokeColor('#e2e8f0')
+                .lineWidth(0.5)
+                .stroke();
         });
-        y += 15;
+
+        y += rowHeight;
     });
+
+    return y; // Return the Y position after the table
 };
 
 /**
@@ -44,33 +131,55 @@ const createTable = (doc, headers, rows, startX, startY, colWidths) => {
  */
 export const generateInvoicePDF = async (student, payment) => {
     try {
-        const doc = new PDFDocument({ margin: 50 });
+        const doc = new PDFDocument({
+            margin: 50,
+            size: 'A4',
+            info: {
+                Title: `Invoice ${payment.invoiceNumber || payment._id}`,
+                Author: 'Student Registration System'
+            }
+        });
+
         const buffers = [];
         doc.on('data', buffers.push.bind(buffers));
 
-        // Header
-        applyHeaderStyle(doc);
-        doc.text('EduFlow Academy', 50, 50);
-        doc.moveDown();
-        doc.text('INVOICE', { align: 'right' });
+        // Header with logo
+        drawHeader(doc, 'INVOICE');
 
-        // Invoice details
+        // Invoice details box
+        doc.roundedRect(50, 100, 240, 80, 5)
+            .fillColor(LIGHT_BG)
+            .fill();
+
+        doc.fillColor(BRAND_COLOR).fontSize(12).font('Helvetica-Bold');
+        doc.text('INVOICE DETAILS', 60, 110);
+
+        applyLabelStyle(doc);
+        doc.text('Invoice Number:', 60, 130);
+        doc.text('Date Issued:', 60, 150);
+        doc.text('Due Date:', 60, 170);
+
         applyBodyStyle(doc);
-        doc.text(`Invoice #: INV-${payment.invoiceNumber || payment._id}`, 50, 120);
-        doc.text(`Date: ${format(new Date(), 'PPP')}`, 50, 140);
-        doc.text(`Due Date: ${payment.dueDate ? format(new Date(payment.dueDate), 'PPP') : 'N/A'}`, 50, 160);
+        doc.text(`${payment.invoiceNumber || payment._id}`, 160, 130);
+        doc.text(`${format(new Date(), 'PPP')}`, 160, 150);
+        doc.text(`${payment.dueDate ? format(new Date(payment.dueDate), 'PPP') : 'N/A'}`, 160, 170);
 
-        // Student details
-        doc.moveDown(2);
-        doc.font('Helvetica-Bold').text('Bill To:', 50);
+        // Student details box
+        doc.roundedRect(310, 100, 240, 80, 5)
+            .fillColor(LIGHT_BG)
+            .fill();
+
+        doc.fillColor(BRAND_COLOR).fontSize(12).font('Helvetica-Bold');
+        doc.text('BILLED TO', 320, 110);
+
         applyBodyStyle(doc);
-        doc.text(student.name || 'Student');
-        doc.text(student.email || 'N/A');
-        doc.text(student.phone || 'N/A');
+        doc.text(student.name || 'Student', 320, 130);
+        doc.text(student.email || 'N/A', 320, 150);
+        doc.text(student.phone || 'N/A', 320, 170);
 
-        // Payment details table
-        doc.moveDown(2);
-        doc.font('Helvetica-Bold').text('Payment Details:', 50);
+        // Payment details section
+        applySubHeaderStyle(doc);
+        doc.text('Payment Details', 50, 210);
 
         const headers = ['Description', 'Amount'];
         const rows = [
@@ -81,19 +190,22 @@ export const generateInvoicePDF = async (student, payment) => {
             rows.push(['Deposit Paid', `-₹${payment.depositAmount.toLocaleString()}`]);
         }
 
-        createTable(doc, headers, rows, 50, doc.y + 20, [300, 150]);
+        let yPos = createTable(doc, headers, rows, 50, 230, [350, 150]);
 
-        // Total
-        doc.moveDown(3);
-        doc.font('Helvetica-Bold')
-            .text('Total Due:', 300)
-            .text(`₹${((payment.totalAmount || 0) - (payment.depositAmount || 0)).toLocaleString()}`, 400);
+        // Total amount section with highlighted box
+        doc.roundedRect(350, yPos + 20, 150, 40, 5)
+            .fillColor(BRAND_COLOR)
+            .fill();
+
+        doc.fillColor('white').font('Helvetica-Bold').fontSize(14);
+        doc.text('Total Due:', 360, yPos + 30);
+        doc.text(`₹${((payment.totalAmount || 0) - (payment.depositAmount || 0)).toLocaleString()}`,
+            360, yPos + 30, { align: 'right', width: 130 });
 
         // Installment schedule if applicable
         if (payment.installments?.length > 0) {
-            doc.moveDown(2);
-            doc.font('Helvetica-Bold').text('Installment Schedule:', 50);
-            applyBodyStyle(doc);
+            applySubHeaderStyle(doc);
+            doc.text('Installment Schedule', 50, yPos + 80);
 
             const installmentHeaders = ['Month', 'Due Date', 'Amount', 'Status'];
             const installmentRows = payment.installments.map(inst => [
@@ -103,24 +215,32 @@ export const generateInvoicePDF = async (student, payment) => {
                 inst.status || 'pending'
             ]);
 
-            createTable(doc, installmentHeaders, installmentRows, 50, doc.y + 20, [100, 150, 100, 100]);
+            createTable(doc, installmentHeaders, installmentRows, 50, yPos + 100, [100, 150, 100, 100]);
         }
 
         // Terms and conditions
-        doc.moveDown(2);
-        doc.fontSize(10)
-            .font('Helvetica-Bold')
-            .text('Terms & Conditions:', 50);
-        doc.font('Helvetica')
-            .text('1. All fees must be paid by the due date specified above.')
-            .text('2. Late payments may incur additional charges.')
-            .text('3. This is a computer-generated invoice and requires no signature.');
+        doc.moveDown(4);
+        applySubHeaderStyle(doc);
+        doc.text('Terms & Conditions', 50, doc.y);
 
-        // Footer
-        doc.fontSize(10)
-            .text('Thank you for choosing EduFlow Academy!', 50, doc.page.height - 100, {
-                align: 'center'
-            });
+        applyBodyStyle(doc);
+        doc.moveDown();
+        doc.list([
+            'All fees must be paid by the due date specified above.',
+            'Late payments may incur additional charges.',
+            'This is a computer-generated invoice and requires no signature.'
+        ], { bulletRadius: 2, textIndent: 10 });
+
+        // Footer with brand color bar
+        doc.rect(0, doc.page.height - 40, doc.page.width, 40)
+            .fillColor(BRAND_COLOR)
+            .fill();
+
+        doc.fillColor('white').fontSize(10).font('Helvetica');
+        doc.text('Thank you for choosing Student Registration System!', 0, doc.page.height - 25, {
+            align: 'center',
+            width: doc.page.width
+        });
 
         doc.end();
 
@@ -141,58 +261,100 @@ export const generateInvoicePDF = async (student, payment) => {
  */
 export const generateReceiptPDF = async (student, payment) => {
     try {
-        const doc = new PDFDocument({ margin: 50 });
+        const doc = new PDFDocument({
+            margin: 50,
+            size: 'A4',
+            info: {
+                Title: `Receipt ${payment.receiptNumber || payment._id}`,
+                Author: 'Student Registration System'
+            }
+        });
+
         const buffers = [];
         doc.on('data', buffers.push.bind(buffers));
 
-        // Header
-        applyHeaderStyle(doc);
-        doc.text('EduFlow Academy', 50, 50);
-    doc.moveDown();
-        doc.text('PAYMENT RECEIPT', { align: 'right' });
+        // Header with logo
+        drawHeader(doc, 'RECEIPT');
 
-        // Receipt details
+        // Receipt details box
+        doc.roundedRect(50, 100, 240, 80, 5)
+            .fillColor(LIGHT_BG)
+            .fill();
+
+        doc.fillColor(BRAND_COLOR).fontSize(12).font('Helvetica-Bold');
+        doc.text('RECEIPT DETAILS', 60, 110);
+
+        applyLabelStyle(doc);
+        doc.text('Receipt Number:', 60, 130);
+        doc.text('Payment Date:', 60, 150);
+        doc.text('Payment Method:', 60, 170);
+
         applyBodyStyle(doc);
-        doc.text(`Receipt #: RCP-${payment.receiptNumber || payment._id}`, 50, 120);
-        doc.text(`Date: ${format(new Date(), 'PPP')}`, 50, 140);
-        doc.text(`Payment Method: ${payment.paymentMethod || 'N/A'}`, 50, 160);
+        doc.text(`${payment.receiptNumber || payment._id}`, 160, 130);
+        doc.text(`${format(new Date(payment.paidDate || new Date()), 'PPP')}`, 160, 150);
+        doc.text(`${payment.paymentMethod || 'N/A'}`, 160, 170);
 
-        // Student details
-        doc.moveDown(2);
-        doc.font('Helvetica-Bold').text('Received From:', 50);
+        // Student details box
+        doc.roundedRect(310, 100, 240, 80, 5)
+            .fillColor(LIGHT_BG)
+            .fill();
+
+        doc.fillColor(BRAND_COLOR).fontSize(12).font('Helvetica-Bold');
+        doc.text('RECEIVED FROM', 320, 110);
+
         applyBodyStyle(doc);
-        doc.text(student.name || 'Student');
-        doc.text(student.email || 'N/A');
+        doc.text(student.name || 'Student', 320, 130);
+        doc.text(student.email || 'N/A', 320, 150);
+        doc.text(student.phone || 'N/A', 320, 170);
 
-        // Payment details table
-        doc.moveDown(2);
+        // Payment details section
+        applySubHeaderStyle(doc);
+        doc.text('Payment Details', 50, 210);
+
         const headers = ['Description', 'Amount'];
         const rows = [[
             payment.description || `Payment for ${payment.courseName || 'Course'}`,
             `₹${(payment.amount || payment.depositAmount || 0).toLocaleString()}`
         ]];
 
-        createTable(doc, headers, rows, 50, doc.y + 20, [300, 150]);
+        let yPos = createTable(doc, headers, rows, 50, 230, [350, 150]);
 
-        // Total amount
-        doc.moveDown(3);
-        doc.font('Helvetica-Bold')
-            .text('Amount Received:', 300)
-            .text(`₹${(payment.amount || payment.depositAmount || 0).toLocaleString()}`, 400);
+        // Total amount section with highlighted box
+        doc.roundedRect(350, yPos + 20, 150, 40, 5)
+            .fillColor(BRAND_COLOR)
+            .fill();
+
+        doc.fillColor('white').font('Helvetica-Bold').fontSize(14);
+        doc.text('Amount Received:', 360, yPos + 30);
+        doc.text(`₹${(payment.amount || payment.depositAmount || 0).toLocaleString()}`,
+            360, yPos + 30, { align: 'right', width: 130 });
 
         // Authentication
-        doc.moveDown(2);
-        doc.fontSize(10)
-            .text('This is a computer-generated receipt.')
-            .text('No signature is required.');
+        doc.moveDown(4);
 
-        // Footer
-        doc.fontSize(10)
-            .text('Thank you for your payment!', 50, doc.page.height - 100, {
-                align: 'center'
-            });
+        // Add a "PAID" watermark
+        doc.save();
+        doc.rotate(-45, { origin: [300, 400] });
+        doc.fontSize(100).fillColor('rgba(15, 118, 110, 0.1)');
+        doc.text('PAID', 100, 400);
+        doc.restore();
 
-    doc.end();
+        applyBodyStyle(doc);
+        doc.fontSize(10);
+        doc.text('This is a computer-generated receipt. No signature is required.', 50, doc.y + 20);
+
+        // Footer with brand color bar
+        doc.rect(0, doc.page.height - 40, doc.page.width, 40)
+            .fillColor(BRAND_COLOR)
+            .fill();
+
+        doc.fillColor('white').fontSize(10).font('Helvetica');
+        doc.text('Thank you for your payment!', 0, doc.page.height - 25, {
+            align: 'center',
+            width: doc.page.width
+        });
+
+        doc.end();
 
         return new Promise((resolve, reject) => {
             doc.on('end', () => {
@@ -211,36 +373,81 @@ export const generateReceiptPDF = async (student, payment) => {
  */
 export const generatePaymentReportPDF = async (payments, analytics, filters = {}) => {
     try {
-        const doc = new PDFDocument({ margin: 50 });
+        const doc = new PDFDocument({
+            margin: 50,
+            size: 'A4',
+            info: {
+                Title: 'Payment Report',
+                Author: 'Student Registration System'
+            }
+        });
+
         const buffers = [];
         doc.on('data', buffers.push.bind(buffers));
 
-        // Header
-        applyHeaderStyle(doc);
-        doc.text('Payment Report', 50, 50);
+        // Header with logo
+        drawHeader(doc, 'PAYMENT REPORT');
 
         // Report period
         applyBodyStyle(doc);
-        doc.moveDown();
-        doc.text(`Generated on: ${format(new Date(), 'PPP')}`);
+        doc.text(`Generated on: ${format(new Date(), 'PPP')}`, 50, 100);
 
         if (filters.dateFrom && filters.dateTo) {
-            doc.text(`Period: ${format(new Date(filters.dateFrom), 'PPP')} - ${format(new Date(filters.dateTo), 'PPP')}`);
+            doc.text(`Period: ${format(new Date(filters.dateFrom), 'PPP')} - ${format(new Date(filters.dateTo), 'PPP')}`, 50, 120);
         }
 
-        // Analytics summary
+        // Analytics summary with boxes
         doc.moveDown(2);
-        doc.font('Helvetica-Bold').text('Payment Summary');
-        applyBodyStyle(doc);
-    doc.moveDown();
-        doc.text(`Total Revenue: ₹${analytics.totalRevenue?.toLocaleString() || 0}`);
-        doc.text(`Successful Payments: ${analytics.successfulPayments || 0}`);
-        doc.text(`Pending Payments: ₹${analytics.pendingPayments?.toLocaleString() || 0}`);
-        doc.text(`Failed Payments: ${analytics.failedPayments || 0}`);
+
+        // Create a grid of metric boxes
+        const boxWidth = 125;
+        const boxHeight = 80;
+        const boxGap = 10;
+        const startY = 150;
+
+        // Total Revenue Box
+        doc.roundedRect(50, startY, boxWidth, boxHeight, 5)
+            .fillColor(BRAND_COLOR)
+            .fill();
+
+        doc.fillColor('white').fontSize(12).font('Helvetica-Bold');
+        doc.text('TOTAL REVENUE', 50 + 10, startY + 15, { width: boxWidth - 20, align: 'center' });
+        doc.fontSize(16);
+        doc.text(`₹${analytics.totalRevenue?.toLocaleString() || 0}`, 50 + 10, startY + 40, { width: boxWidth - 20, align: 'center' });
+
+        // Successful Payments Box
+        doc.roundedRect(50 + boxWidth + boxGap, startY, boxWidth, boxHeight, 5)
+            .fillColor(ACCENT_COLOR)
+            .fill();
+
+        doc.fillColor('white').fontSize(12).font('Helvetica-Bold');
+        doc.text('SUCCESSFUL', 50 + boxWidth + boxGap + 10, startY + 15, { width: boxWidth - 20, align: 'center' });
+        doc.fontSize(16);
+        doc.text(`${analytics.successfulPayments || 0}`, 50 + boxWidth + boxGap + 10, startY + 40, { width: boxWidth - 20, align: 'center' });
+
+        // Pending Payments Box
+        doc.roundedRect(50 + (boxWidth + boxGap) * 2, startY, boxWidth, boxHeight, 5)
+            .fillColor('#f59e0b')  // Amber 500
+            .fill();
+
+        doc.fillColor('white').fontSize(12).font('Helvetica-Bold');
+        doc.text('PENDING', 50 + (boxWidth + boxGap) * 2 + 10, startY + 15, { width: boxWidth - 20, align: 'center' });
+        doc.fontSize(16);
+        doc.text(`₹${analytics.pendingPayments?.toLocaleString() || 0}`, 50 + (boxWidth + boxGap) * 2 + 10, startY + 40, { width: boxWidth - 20, align: 'center' });
+
+        // Failed Payments Box
+        doc.roundedRect(50 + (boxWidth + boxGap) * 3, startY, boxWidth, boxHeight, 5)
+            .fillColor('#ef4444')  // Red 500
+            .fill();
+
+        doc.fillColor('white').fontSize(12).font('Helvetica-Bold');
+        doc.text('FAILED', 50 + (boxWidth + boxGap) * 3 + 10, startY + 15, { width: boxWidth - 20, align: 'center' });
+        doc.fontSize(16);
+        doc.text(`${analytics.failedPayments || 0}`, 50 + (boxWidth + boxGap) * 3 + 10, startY + 40, { width: boxWidth - 20, align: 'center' });
 
         // Payment details table
-        doc.moveDown(2);
-        doc.font('Helvetica-Bold').text('Payment Details');
+        applySubHeaderStyle(doc);
+        doc.text('Payment Details', 50, startY + boxHeight + 30);
 
         const headers = ['Student', 'Amount', 'Method', 'Status', 'Date'];
         const rows = payments.map(payment => [
@@ -251,9 +458,20 @@ export const generatePaymentReportPDF = async (payments, analytics, filters = {}
             format(new Date(payment.created_at || payment.date), 'PP')
         ]);
 
-        createTable(doc, headers, rows, 50, doc.y + 20, [150, 100, 100, 80, 100]);
+        createTable(doc, headers, rows, 50, startY + boxHeight + 50, [150, 100, 100, 80, 100]);
 
-    doc.end();
+        // Footer with brand color bar
+        doc.rect(0, doc.page.height - 40, doc.page.width, 40)
+            .fillColor(BRAND_COLOR)
+            .fill();
+
+        doc.fillColor('white').fontSize(10).font('Helvetica');
+        doc.text('Student Registration System - Confidential', 0, doc.page.height - 25, {
+            align: 'center',
+            width: doc.page.width
+        });
+
+        doc.end();
 
         return new Promise((resolve, reject) => {
             doc.on('end', () => {
