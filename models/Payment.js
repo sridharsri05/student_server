@@ -2,7 +2,7 @@ import mongoose from 'mongoose';
 
 const installmentSchema = new mongoose.Schema({
     month: { type: Number, required: true },
-    amount: { type: Number, required: true },
+    amount: { type: mongoose.Schema.Types.Mixed, required: true }, // Allow both Number and String
     dueDate: { type: Date, required: true },
     status: {
         type: String,

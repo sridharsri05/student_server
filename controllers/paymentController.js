@@ -265,33 +265,76 @@ export const getPaymentAnalytics = async (req, res) => {
 
 export const createPayment = async (req, res) => {
     try {
-        const payment = new Payment(req.body);
+        // Extract installmentPlan from request body if it exists
+        const { installmentPlan, ...paymentData } = req.body;
+
+        // Create the payment object with modified data
+        const paymentDataWithInstallments = { ...paymentData };
+
+        // If installmentPlan exists, set the installments array and installmentMonths
+        if (installmentPlan && installmentPlan.installments && installmentPlan.installments.length > 0) {
+            paymentDataWithInstallments.installments = installmentPlan.installments.map(inst => ({
+                ...inst,
+                dueDate: new Date(inst.dueDate), // Convert string dates to Date objects
+                amount: parseFloat(inst.amount)  // Convert string amounts to numbers
+            }));
+            paymentDataWithInstallments.installmentMonths = installmentPlan.totalMonths || installmentPlan.installments.length;
+        }
+
+        const payment = new Payment(paymentDataWithInstallments);
+
         const savedPayment = await payment.save();
 
-        // Create EMI records if installmentMonths > 1 and there's a remaining amount
-        if (payment.installmentMonths > 1 && payment.remainingAmount > 0) {
-            const monthlyAmount = payment.remainingAmount / payment.installmentMonths;
+        // Create EMI records if there are installments and there's a remaining amount
+        if ((payment.installmentMonths > 1 || (payment.installments && payment.installments.length > 0)) && payment.remainingAmount > 0) {
             let nextDueDate = null;
 
-            // Create EMI payment records
-            for (let i = 0; i < payment.installmentMonths; i++) {
-                const dueDate = new Date(payment.dueDate);
-                dueDate.setMonth(dueDate.getMonth() + i + 1);
+            // Use installments array if available, otherwise calculate based on installmentMonths
+            if (payment.installments && payment.installments.length > 0) {
+                // Create EMI records from the installments array
+                for (let i = 0; i < payment.installments.length; i++) {
+                    const installment = payment.installments[i];
+                    const dueDate = new Date(installment.dueDate);
 
-                // Save the first due date as the next payment due date
-                if (i === 0) {
-                    nextDueDate = dueDate;
+                    // Save the first due date as the next payment due date
+                    if (i === 0) {
+                        nextDueDate = dueDate;
+                    }
+
+                    await new EMIPayment({
+                        payment: savedPayment._id,
+                        student: payment.student,
+                        installmentNumber: installment.month || (i + 1),
+                        amount: parseFloat(installment.amount),
+                        dueDate: dueDate,
+                        status: installment.status || 'pending',
+                        paymentMethod: payment.paymentMethod
+                    }).save();
                 }
+            } else {
+                // Calculate installments based on installmentMonths
+                const monthlyAmount = payment.remainingAmount / payment.installmentMonths;
 
-                await new EMIPayment({
-                    payment: savedPayment._id,
-                    student: payment.student,
-                    installmentNumber: i + 1,
-                    amount: monthlyAmount,
-                    dueDate: dueDate,
-                    status: 'pending',
-                    paymentMethod: payment.paymentMethod
-                }).save();
+                // Create EMI payment records
+                for (let i = 0; i < payment.installmentMonths; i++) {
+                    const dueDate = new Date(payment.dueDate);
+                    dueDate.setMonth(dueDate.getMonth() + i + 1);
+
+                    // Save the first due date as the next payment due date
+                    if (i === 0) {
+                        nextDueDate = dueDate;
+                    }
+
+                    await new EMIPayment({
+                        payment: savedPayment._id,
+                        student: payment.student,
+                        installmentNumber: i + 1,
+                        amount: monthlyAmount,
+                        dueDate: dueDate,
+                        status: 'pending',
+                        paymentMethod: payment.paymentMethod
+                    }).save();
+                }
             }
 
             // Update student payment information
