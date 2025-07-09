@@ -153,11 +153,42 @@ async function handlePaymentSuccess(paymentIntent) {
 
                 await payment.save();
 
-                // Update student status
-                await Student.findByIdAndUpdate(payment.student, {
-                    status: 'active',
-                    feeStatus: 'complete'
-                });
+                // Fetch the student record
+                const student = await Student.findById(payment.student);
+
+                if (student) {
+                    // Calculate the payment amount
+                    const paymentAmount = payment.remainingAmount > 0 ? payment.remainingAmount : payment.totalAmount;
+
+                    // Update student's fee information
+                    // If totalFees is 0, set it to the course fee amount
+                    if (student.totalFees === 0) {
+                        student.totalFees = paymentAmount;
+                    }
+
+                    // Update paid amount
+                    student.paidAmount = paymentAmount;
+
+                    // Calculate remaining amount
+                    student.remainingAmount = student.totalFees - student.paidAmount;
+
+                    // Update status
+                    student.status = 'active';
+                    student.feeStatus = student.remainingAmount <= 0 ? 'complete' : 'partial';
+
+                    // Save the updated student record
+                    await student.save();
+
+                    console.log('Student record updated with payment information via webhook', {
+                        studentId: student._id,
+                        totalFees: student.totalFees,
+                        paidAmount: student.paidAmount,
+                        remainingAmount: student.remainingAmount,
+                        feeStatus: student.feeStatus
+                    });
+                } else {
+                    console.warn(`Student not found for payment: ${payment._id}`);
+                }
             }
         }
 
@@ -189,11 +220,35 @@ async function handlePaymentSuccess(paymentIntent) {
                         mainPayment.status = 'completed';
                         await mainPayment.save();
 
-                        // Update student status
-                        await Student.findByIdAndUpdate(mainPayment.student, {
-                            status: 'active',
-                            feeStatus: 'complete'
-                        });
+                        // Fetch the student record
+                        const student = await Student.findById(mainPayment.student);
+
+                        if (student) {
+                            // Update student's fee information for EMI completion
+                            // Calculate total paid amount from all EMIs
+                            const paidEMIs = await EMIPayment.find({
+                                payment: mainPayment._id,
+                                status: 'paid'
+                            });
+
+                            const totalPaid = paidEMIs.reduce((sum, emi) => sum + (emi.amount || 0), 0);
+
+                            // Update student record
+                            student.paidAmount = totalPaid;
+                            student.status = 'active';
+                            student.feeStatus = 'complete';
+
+                            // Save the updated student record
+                            await student.save();
+
+                            console.log('Student record updated with EMI payment completion', {
+                                studentId: student._id,
+                                totalFees: student.totalFees,
+                                paidAmount: student.paidAmount,
+                                remainingAmount: student.remainingAmount,
+                                feeStatus: student.feeStatus
+                            });
+                        }
                     }
                 }
             }
@@ -311,15 +366,46 @@ export const manualPaymentStatusUpdate = async (req, res) => {
         // Save the updated payment
         await payment.save();
 
-        // Update student status to active
-        const studentUpdate = await Student.findByIdAndUpdate(
-            payment.student,
-            {
-                status: 'active',
-                feeStatus: 'complete'
-            },
-            { new: true }
-        );
+        // Fetch the student record
+        const student = await Student.findById(payment.student);
+
+        if (!student) {
+            console.warn(`Student not found for payment: ${payment._id}`);
+            return res.status(404).json({
+                error: 'Student record not found',
+                details: { studentId: payment.student }
+            });
+        }
+
+        // Calculate the payment amount
+        const paymentAmount = payment.remainingAmount > 0 ? payment.remainingAmount : payment.totalAmount;
+
+        // Update student's fee information
+        // If totalFees is 0, set it to the course fee amount
+        if (student.totalFees === 0) {
+            student.totalFees = paymentAmount;
+        }
+
+        // Update paid amount
+        student.paidAmount = paymentAmount;
+
+        // Calculate remaining amount
+        student.remainingAmount = student.totalFees - student.paidAmount;
+
+        // Update status
+        student.status = 'active';
+        student.feeStatus = student.remainingAmount <= 0 ? 'complete' : 'partial';
+
+        // Save the updated student record
+        await student.save();
+
+        console.log('Student record updated with payment information', {
+            studentId: student._id,
+            totalFees: student.totalFees,
+            paidAmount: student.paidAmount,
+            remainingAmount: student.remainingAmount,
+            feeStatus: student.feeStatus
+        });
 
         // Log successful update
         console.log(`Payment ${paymentId} successfully updated to completed`, {
@@ -329,7 +415,7 @@ export const manualPaymentStatusUpdate = async (req, res) => {
                 amount: payment.totalAmount,
                 courseName: payment.courseName
             },
-            studentUpdated: studentUpdate ? true : false
+            studentUpdated: true
         });
 
         return res.status(200).json({
