@@ -268,12 +268,100 @@ export const createPayment = async (req, res) => {
         const payment = new Payment(req.body);
         const savedPayment = await payment.save();
 
-        // Update student status if needed
-        if (payment.status === 'completed') {
-            await Student.findByIdAndUpdate(payment.student, {
-                status: 'active-paid',
-                feeStatus: 'paid'
-            });
+        // Create EMI records if installmentMonths > 1 and there's a remaining amount
+        if (payment.installmentMonths > 1 && payment.remainingAmount > 0) {
+            const monthlyAmount = payment.remainingAmount / payment.installmentMonths;
+            let nextDueDate = null;
+
+            // Create EMI payment records
+            for (let i = 0; i < payment.installmentMonths; i++) {
+                const dueDate = new Date(payment.dueDate);
+                dueDate.setMonth(dueDate.getMonth() + i + 1);
+
+                // Save the first due date as the next payment due date
+                if (i === 0) {
+                    nextDueDate = dueDate;
+                }
+
+                await new EMIPayment({
+                    payment: savedPayment._id,
+                    student: payment.student,
+                    installmentNumber: i + 1,
+                    amount: monthlyAmount,
+                    dueDate: dueDate,
+                    status: 'pending',
+                    paymentMethod: payment.paymentMethod
+                }).save();
+            }
+
+            // Update student payment information
+            const student = await Student.findById(payment.student);
+            if (student) {
+                // Update total fees if not set
+                if (!student.totalFees || student.totalFees === 0) {
+                    student.totalFees = payment.totalAmount;
+                }
+
+                // Update paid amount
+                student.paidAmount = (student.paidAmount || 0) + payment.depositAmount;
+
+                // Calculate remaining amount
+                student.remainingAmount = student.totalFees - student.paidAmount;
+
+                // Update fee status
+                if (student.remainingAmount <= 0) {
+                    student.feeStatus = 'complete';
+                } else if (student.paidAmount > 0) {
+                    student.feeStatus = 'partial';
+                } else {
+                    student.feeStatus = 'pending';
+                }
+
+                // Set next payment due date
+                if (nextDueDate) {
+                    student.nextPaymentDue = nextDueDate;
+                }
+
+                await student.save();
+            }
+        }
+
+        // Update student payment information and status
+        const student = await Student.findById(payment.student);
+        if (student) {
+            // Update total fees if not set
+            if (!student.totalFees || student.totalFees === 0) {
+                student.totalFees = payment.totalAmount;
+            }
+
+            // Update paid amount
+            student.paidAmount = (student.paidAmount || 0) + payment.depositAmount;
+
+            // Calculate remaining amount
+            student.remainingAmount = student.totalFees - student.paidAmount;
+
+            // Update fee status
+            if (student.remainingAmount <= 0) {
+                student.feeStatus = 'complete';
+            } else if (student.paidAmount > 0) {
+                student.feeStatus = 'partial';
+            } else {
+                student.feeStatus = 'pending';
+            }
+
+            // Update student status if payment is completed
+            if (payment.status === 'completed') {
+                student.status = 'active-paid';
+            }
+
+            // Set next payment due date if there's remaining amount
+            if (student.remainingAmount > 0 && payment.dueDate) {
+                const nextDueDate = new Date(payment.dueDate);
+                nextDueDate.setMonth(nextDueDate.getMonth() + 1);
+                student.nextPaymentDue = nextDueDate;
+            }
+
+            await student.save();
         }
 
         res.status(201).json(savedPayment);
