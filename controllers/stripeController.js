@@ -158,16 +158,16 @@ async function handlePaymentSuccess(paymentIntent) {
 
                 if (student) {
                     // Calculate the payment amount
-                    const paymentAmount = payment.remainingAmount > 0 ? payment.remainingAmount : payment.totalAmount;
+                    const paymentAmount = payment.depositAmount > 0 ? payment.depositAmount : payment.totalAmount;
 
                     // Update student's fee information
-                    // If totalFees is 0, set it to the course fee amount
+                    // If totalFees is 0, set it to the total amount from payment
                     if (student.totalFees === 0) {
-                        student.totalFees = paymentAmount;
+                        student.totalFees = payment.totalAmount;
                     }
 
-                    // Update paid amount
-                    student.paidAmount = paymentAmount;
+                    // Update paid amount - add this payment to any existing paid amount
+                    student.paidAmount = (student.paidAmount || 0) + paymentAmount;
 
                     // Calculate remaining amount
                     student.remainingAmount = student.totalFees - student.paidAmount;
@@ -378,16 +378,16 @@ export const manualPaymentStatusUpdate = async (req, res) => {
         }
 
         // Calculate the payment amount
-        const paymentAmount = payment.remainingAmount > 0 ? payment.remainingAmount : payment.totalAmount;
+        const paymentAmount = payment.depositAmount > 0 ? payment.depositAmount : payment.totalAmount;
 
         // Update student's fee information
-        // If totalFees is 0, set it to the course fee amount
+        // If totalFees is 0, set it to the total amount from payment
         if (student.totalFees === 0) {
-            student.totalFees = paymentAmount;
+            student.totalFees = payment.totalAmount;
         }
 
-        // Update paid amount
-        student.paidAmount = paymentAmount;
+        // Update paid amount - add this payment to any existing paid amount
+        student.paidAmount = (student.paidAmount || 0) + paymentAmount;
 
         // Calculate remaining amount
         student.remainingAmount = student.totalFees - student.paidAmount;
