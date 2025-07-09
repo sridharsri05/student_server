@@ -76,9 +76,35 @@ export const addEMIPayment = async (req, res) => {
     }
 };
 
-export const getEMIPayments = async (_, res) => {
-    const emiPayments = await EMIPayment.find().populate('student');
-    res.json(emiPayments);
+export const getEMIPayments = async (req, res) => {
+    try {
+        const { student, payment, status } = req.query;
+        const query = {};
+
+        // Apply filters if provided
+        if (student) {
+            query.student = student;
+        }
+
+        if (payment) {
+            query.payment = payment;
+        }
+
+        if (status) {
+            query.status = status;
+        }
+
+        // Fetch EMI payments with student details
+        const emiPayments = await EMIPayment.find(query)
+            .populate('student', 'name email phone')
+            .populate('payment')
+            .sort({ dueDate: 1 });
+
+        res.json(emiPayments);
+    } catch (error) {
+        console.error('Error fetching EMI payments:', error);
+        res.status(500).json({ error: error.message });
+    }
 };
 
 export const updateEMIPayment = async (req, res) => {
@@ -308,7 +334,8 @@ export const createPayment = async (req, res) => {
                         amount: parseFloat(installment.amount),
                         dueDate: dueDate,
                         status: installment.status || 'pending',
-                        paymentMethod: payment.paymentMethod
+                        paymentMethod: payment.paymentMethod,
+                        currency: payment.currency || 'INR'
                     }).save();
                 }
             } else {
@@ -332,7 +359,8 @@ export const createPayment = async (req, res) => {
                         amount: monthlyAmount,
                         dueDate: dueDate,
                         status: 'pending',
-                        paymentMethod: payment.paymentMethod
+                        paymentMethod: payment.paymentMethod,
+                        currency: payment.currency || 'INR'
                     }).save();
                 }
             }
