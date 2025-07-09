@@ -107,11 +107,37 @@ export const handleWebhook = async (req, res) => {
     const signature = req.headers['stripe-signature'];
 
     try {
+        // Log webhook request details for debugging
+        console.log('Webhook request received', {
+            hasSignature: !!signature,
+            bodyType: typeof req.body,
+            bodyIsBuffer: Buffer.isBuffer(req.body),
+            bodyLength: req.body ? (Buffer.isBuffer(req.body) ? req.body.length : JSON.stringify(req.body).length) : 0,
+            timestamp: new Date().toISOString()
+        });
+
+        if (!signature) {
+            console.error('Webhook signature missing');
+            return res.status(400).send('Webhook signature missing');
+        }
+
+        if (!stripeConfig.webhookSecret) {
+            console.error('Webhook secret not configured');
+            return res.status(500).send('Webhook secret not configured');
+        }
+
+        // Verify and construct the event
         const event = stripe.webhooks.constructEvent(
             req.body,
             signature,
             stripeConfig.webhookSecret
         );
+
+        console.log(`Webhook event received: ${event.type}`, {
+            eventId: event.id,
+            eventType: event.type,
+            timestamp: new Date().toISOString()
+        });
 
         // Handle the event
         switch (event.type) {
@@ -125,9 +151,13 @@ export const handleWebhook = async (req, res) => {
                 console.log(`Unhandled event type ${event.type}`);
         }
 
-        res.json({ received: true });
+        res.json({ received: true, eventType: event.type });
     } catch (err) {
-        console.error(`Webhook error: ${err.message}`);
+        console.error('Webhook error:', {
+            message: err.message,
+            stack: err.stack,
+            timestamp: new Date().toISOString()
+        });
         res.status(400).send(`Webhook Error: ${err.message}`);
     }
 };
@@ -319,6 +349,25 @@ export const manualPaymentStatusUpdate = async (req, res) => {
             currency: paymentIntent.currency
         });
 
+        // First, check if this is an EMI payment
+        let emiPayment = await EMIPayment.findById(paymentId);
+
+        if (emiPayment) {
+            console.log('Found EMI payment record, redirecting to EMI update handler');
+            // Use the EMI payment update handler instead
+            return manualEMIPaymentUpdate({
+                params: { id: paymentId },
+                body: {
+                    paymentIntentId,
+                    status: 'paid',
+                    paidDate: new Date().toISOString(),
+                    paymentMethod: 'online',
+                    transactionId: paymentIntentId
+                }
+            }, res);
+        }
+
+        // If not an EMI payment, continue with regular payment processing
         // Find the corresponding payment in the database
         // Try to find by gatewayPaymentId first, then by _id if provided
         let payment = await Payment.findOne({

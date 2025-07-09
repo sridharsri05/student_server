@@ -215,7 +215,7 @@ router.post('/discounts/apply', authenticate, discountController.applyDiscount);
 // Payment Gateway Routes
 router.post('/stripe/create-payment-intent', authenticate, stripeController.createPaymentIntent);
 router.post('/stripe/create-emi-payment-intent', authenticate, stripeController.createEMIPaymentIntent);
-router.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeController.handleWebhook);
+router.post('/stripe/webhook', stripeController.handleWebhook);
 router.get('/stripe/payment-methods/:studentId', authenticate, stripeController.getPaymentMethods);
 // Stripe manual payment status update - no auth required for client-side payment completion
 router.post('/stripe/manual-update', stripeController.manualPaymentStatusUpdate);

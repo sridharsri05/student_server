@@ -49,10 +49,16 @@ const corsOptions = {
         "X-Requested-With",
         "Accept",
         "Origin",
-        "Access-Control-Allow-Origin"
+        "Access-Control-Allow-Origin",
+        "stripe-signature"
     ]
 };
 app.use(cors(corsOptions));
+
+// Special handling for Stripe webhook route - must come before bodyParser middleware
+app.use('/api/stripe/webhook', express.raw({ type: 'application/json' }));
+
+// Regular body parsing for all other routes
 app.use(bodyParser.json());
 
 
