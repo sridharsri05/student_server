@@ -216,7 +216,22 @@ router.post('/stripe/create-payment-intent', authenticate, stripeController.crea
 router.post('/stripe/create-emi-payment-intent', authenticate, stripeController.createEMIPaymentIntent);
 router.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripeController.handleWebhook);
 router.get('/stripe/payment-methods/:studentId', authenticate, stripeController.getPaymentMethods);
-// Stripe manual payment status update
-router.post('/stripe/manual-update', authenticate, stripeController.manualPaymentStatusUpdate);
+// Stripe manual payment status update - no auth required for client-side payment completion
+router.post('/stripe/manual-update', stripeController.manualPaymentStatusUpdate);
 
+
+
+
+// Stripe webhook debugging route (for testing - remove in production)
+router.post('/stripe/webhook-test', (req, res) => {
+    console.log('🧪 Webhook test endpoint called');
+    console.log('Headers:', req.headers);
+    console.log('Body type:', typeof req.body);
+    console.log('Body:', req.body);
+    res.status(200).json({
+        success: true,
+        message: 'Webhook test endpoint working',
+        timestamp: new Date().toISOString()
+    });
+});
 export default router;

@@ -230,64 +230,125 @@ async function handlePaymentFailure(paymentIntent) {
 
 // Add this method after handlePaymentFailure function
 export const manualPaymentStatusUpdate = async (req, res) => {
+    console.log('Manual Payment Status Update Request Received', {
+        body: req.body,
+        user: req.user ? req.user._id : 'No User',
+        timestamp: new Date().toISOString()
+    });
+
+    const { paymentId, paymentIntentId } = req.body;
+
+    // Validate input
+    if (!paymentId || !paymentIntentId) {
+        console.warn('Invalid input for manual payment status update', {
+            paymentId,
+            paymentIntentId
+        });
+        return res.status(400).json({
+            error: 'Payment ID and Payment Intent ID are required',
+            details: { paymentId, paymentIntentId }
+        });
+    }
+
     try {
-        const { paymentId, paymentIntentId } = req.body;
+        // Log the incoming update request
+        console.log(`Attempting to update payment status for Payment ID: ${paymentId}, Payment Intent: ${paymentIntentId}`);
 
-        // Validate input
-        if (!paymentId || !paymentIntentId) {
-            return res.status(400).json({
-                error: 'Payment ID and Payment Intent ID are required'
-            });
-        }
-
-        // Verify the payment intent with Stripe
+        // Retrieve the payment intent from Stripe
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
-        // Find the payment in the database
-        const payment = await Payment.findOne({
+        console.log('Stripe Payment Intent Retrieved', {
+            id: paymentIntent.id,
+            status: paymentIntent.status,
+            amount: paymentIntent.amount,
+            currency: paymentIntent.currency
+        });
+
+        // Find the corresponding payment in the database
+        // Try to find by gatewayPaymentId first, then by _id if provided
+        let payment = await Payment.findOne({
             gatewayPaymentId: paymentIntentId
         });
 
+        // If not found by gatewayPaymentId, try to find by _id (paymentId)
+        if (!payment && paymentId) {
+            payment = await Payment.findById(paymentId);
+
+            // If found by ID but gatewayPaymentId doesn't match, update it
+            if (payment && !payment.gatewayPaymentId) {
+                payment.gatewayPaymentId = paymentIntentId;
+            }
+        }
+
         if (!payment) {
+            console.error(`Payment not found for Payment Intent: ${paymentIntentId} or Payment ID: ${paymentId}`);
             return res.status(404).json({
-                error: 'Payment not found',
-                details: 'No payment found with the given Payment Intent ID'
+                error: 'Payment record not found',
+                details: { paymentIntentId, paymentId }
             });
         }
 
-        // Check if payment is already in a final state
-        if (payment.status === 'completed' || payment.status === 'failed') {
-            return res.status(200).json({
-                message: 'Payment already processed',
-                currentStatus: payment.status
-            });
-        }
-
-        // Verify payment intent status
-        if (paymentIntent.status === 'succeeded') {
-            // Update payment status
-            payment.status = 'completed';
-            payment.paidDate = new Date();
-            payment.transactionId = paymentIntent.latest_charge;
-
-            // Save the updated payment
-            await payment.save();
-
-            return res.status(200).json({
-                message: 'Payment status updated successfully',
-                status: 'completed'
-            });
-        } else {
-            // Handle other payment intent statuses
+        // Check payment intent status
+        if (paymentIntent.status !== 'succeeded') {
+            console.warn(`Payment Intent ${paymentIntentId} status is not 'succeeded'. Current status: ${paymentIntent.status}`);
             return res.status(400).json({
-                message: 'Payment not yet succeeded',
+                error: 'Payment not yet completed',
                 currentStatus: paymentIntent.status
             });
         }
+
+        // Update payment status
+        payment.status = 'completed';
+        payment.paidDate = new Date();
+        payment.transactionId = paymentIntent.id;
+
+        // Generate receipt number if not already set
+        if (!payment.receiptNumber) {
+            const count = await Payment.countDocuments();
+            payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
+        }
+
+        // Save the updated payment
+        await payment.save();
+
+        // Update student status to active
+        const studentUpdate = await Student.findByIdAndUpdate(
+            payment.student,
+            {
+                status: 'active',
+                feeStatus: 'complete'
+            },
+            { new: true }
+        );
+
+        // Log successful update
+        console.log(`Payment ${paymentId} successfully updated to completed`, {
+            paymentDetails: {
+                _id: payment._id,
+                studentId: payment.student,
+                amount: payment.totalAmount,
+                courseName: payment.courseName
+            },
+            studentUpdated: studentUpdate ? true : false
+        });
+
+        return res.status(200).json({
+            message: 'Payment status updated successfully',
+            paymentId: payment._id,
+            status: 'completed'
+        });
+
     } catch (error) {
-        console.error('Error updating payment status:', error);
+        // Log any unexpected errors
+        console.error('Error in manual payment status update', {
+            error: error.message,
+            stack: error.stack,
+            paymentId,
+            paymentIntentId
+        });
+
         return res.status(500).json({
-            error: 'Internal server error',
+            error: 'Internal server error during payment status update',
             details: error.message
         });
     }
