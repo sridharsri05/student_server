@@ -352,11 +352,41 @@ export const manualPaymentStatusUpdate = async (req, res) => {
         // First, check if this is an EMI payment
         let emiPayment = await EMIPayment.findById(paymentId);
 
+        // If not found directly, check in EMI payments with the payment intent ID
+        if (!emiPayment) {
+            emiPayment = await EMIPayment.findOne({ gatewayPaymentId: paymentIntentId });
+
+            if (emiPayment) {
+                console.log(`EMI payment found by payment intent ID instead of payment ID. EMI ID: ${emiPayment._id}`);
+            }
+        }
+
+        // If still not found, check for metadata in the payment intent
+        if (!emiPayment && paymentIntent.metadata && paymentIntent.metadata.emiPaymentId) {
+            emiPayment = await EMIPayment.findById(paymentIntent.metadata.emiPaymentId);
+            if (emiPayment) {
+                console.log(`EMI payment found using metadata from payment intent. EMI ID: ${emiPayment._id}`);
+            }
+        }
+
+        // If still not found, try to find any EMI payment for the student in the payment intent metadata
+        if (!emiPayment && paymentIntent.metadata && paymentIntent.metadata.studentId) {
+            const studentEmiPayments = await EMIPayment.find({
+                student: paymentIntent.metadata.studentId,
+                status: { $in: ['pending', 'overdue'] }
+            }).sort({ dueDate: 1 }).limit(1);
+
+            if (studentEmiPayments && studentEmiPayments.length > 0) {
+                emiPayment = studentEmiPayments[0];
+                console.log(`EMI payment found by student ID from metadata. EMI ID: ${emiPayment._id}`);
+            }
+        }
+
         if (emiPayment) {
             console.log('Found EMI payment record, redirecting to EMI update handler');
             // Use the EMI payment update handler instead
             return manualEMIPaymentUpdate({
-                params: { id: paymentId },
+                params: { id: emiPayment._id.toString() },
                 body: {
                     paymentIntentId,
                     status: 'paid',
@@ -377,10 +407,43 @@ export const manualPaymentStatusUpdate = async (req, res) => {
         // If not found by gatewayPaymentId, try to find by _id (paymentId)
         if (!payment && paymentId) {
             payment = await Payment.findById(paymentId);
+        }
 
-            // If found by ID but gatewayPaymentId doesn't match, update it
-            if (payment && !payment.gatewayPaymentId) {
-                payment.gatewayPaymentId = paymentIntentId;
+        // If still not found, check for metadata in the payment intent
+        if (!payment && paymentIntent.metadata && paymentIntent.metadata.paymentId) {
+            payment = await Payment.findById(paymentIntent.metadata.paymentId);
+            if (payment) {
+                console.log(`Payment found using metadata from payment intent. Payment ID: ${payment._id}`);
+            }
+        }
+
+        // If still not found, try to find any payment for the student in the payment intent metadata
+        if (!payment && paymentIntent.metadata && paymentIntent.metadata.studentId) {
+            const studentPayments = await Payment.find({
+                student: paymentIntent.metadata.studentId,
+                status: { $in: ['pending', 'partial'] }
+            }).sort({ createdAt: -1 }).limit(1);
+
+            if (studentPayments && studentPayments.length > 0) {
+                payment = studentPayments[0];
+                console.log(`Payment found by student ID from metadata. Payment ID: ${payment._id}`);
+            }
+        }
+
+        // Last resort: try to find payments with similar IDs (in case of typos)
+        if (!payment && paymentId && paymentId.length >= 20) {
+            // Get first 20 chars of the ID to match on
+            const idPrefix = paymentId.substring(0, 20);
+            console.log(`Trying to find payment with similar ID prefix: ${idPrefix}`);
+
+            // Use regex to find payments with similar IDs
+            const similarPayments = await Payment.find({
+                _id: { $regex: new RegExp('^' + idPrefix) }
+            }).limit(1);
+
+            if (similarPayments && similarPayments.length > 0) {
+                payment = similarPayments[0];
+                console.log(`Found payment with similar ID. Actual ID: ${payment._id}, Requested ID: ${paymentId}`);
             }
         }
 
@@ -390,6 +453,11 @@ export const manualPaymentStatusUpdate = async (req, res) => {
                 error: 'Payment record not found',
                 details: { paymentIntentId, paymentId }
             });
+        }
+
+        // If found by ID but gatewayPaymentId doesn't match, update it
+        if (payment && !payment.gatewayPaymentId) {
+            payment.gatewayPaymentId = paymentIntentId;
         }
 
         // Check payment intent status
@@ -457,7 +525,7 @@ export const manualPaymentStatusUpdate = async (req, res) => {
         });
 
         // Log successful update
-        console.log(`Payment ${paymentId} successfully updated to completed`, {
+        console.log(`Payment ${payment._id} successfully updated to completed`, {
             paymentDetails: {
                 _id: payment._id,
                 studentId: payment.student,
@@ -576,6 +644,48 @@ export const manualEMIPaymentUpdate = async (req, res) => {
             emiPayment = await EMIPayment.findOne({
                 gatewayPaymentId: paymentIntentId
             });
+
+            if (emiPayment) {
+                console.log(`EMI payment found by payment intent ID instead of EMI ID. EMI ID: ${emiPayment._id}`);
+            }
+        }
+
+        // If still not found, check for metadata in the payment intent
+        if (!emiPayment && paymentIntent.metadata && paymentIntent.metadata.emiPaymentId) {
+            emiPayment = await EMIPayment.findById(paymentIntent.metadata.emiPaymentId);
+            if (emiPayment) {
+                console.log(`EMI payment found using metadata from payment intent. EMI ID: ${emiPayment._id}`);
+            }
+        }
+
+        // If still not found, try to find any EMI payment for the student in the payment intent metadata
+        if (!emiPayment && paymentIntent.metadata && paymentIntent.metadata.studentId) {
+            const studentEmiPayments = await EMIPayment.find({
+                student: paymentIntent.metadata.studentId,
+                status: { $in: ['pending', 'overdue'] }
+            }).sort({ dueDate: 1 }).limit(1);
+
+            if (studentEmiPayments && studentEmiPayments.length > 0) {
+                emiPayment = studentEmiPayments[0];
+                console.log(`EMI payment found by student ID from metadata. EMI ID: ${emiPayment._id}`);
+            }
+        }
+
+        // Last resort: try to find EMI payments with similar IDs (in case of typos)
+        if (!emiPayment && id && id.length >= 20) {
+            // Get first 20 chars of the ID to match on
+            const idPrefix = id.substring(0, 20);
+            console.log(`Trying to find EMI payment with similar ID prefix: ${idPrefix}`);
+
+            // Use regex to find EMI payments with similar IDs
+            const similarEmiPayments = await EMIPayment.find({
+                _id: { $regex: new RegExp('^' + idPrefix) }
+            }).limit(1);
+
+            if (similarEmiPayments && similarEmiPayments.length > 0) {
+                emiPayment = similarEmiPayments[0];
+                console.log(`Found EMI payment with similar ID. Actual ID: ${emiPayment._id}, Requested ID: ${id}`);
+            }
         }
 
         if (!emiPayment) {
@@ -627,7 +737,7 @@ export const manualEMIPaymentUpdate = async (req, res) => {
         }
 
         // Log successful update
-        console.log(`EMI Payment ${id} successfully updated to paid`, {
+        console.log(`EMI Payment ${emiPayment._id} successfully updated to paid`, {
             emiPaymentDetails: {
                 _id: emiPayment._id,
                 studentId: emiPayment.student,
