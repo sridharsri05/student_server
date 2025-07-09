@@ -481,6 +481,134 @@ export const getPaymentMethods = async (req, res) => {
     }
 };
 
+// Manual update for EMI payments
+export const manualEMIPaymentUpdate = async (req, res) => {
+    console.log('Manual EMI Payment Update Request Received', {
+        body: req.body,
+        params: req.params,
+        user: req.user ? req.user._id : 'No User',
+        timestamp: new Date().toISOString()
+    });
+
+    const { id } = req.params;
+    const { status, paidDate, paymentMethod, paymentIntentId, transactionId } = req.body;
+
+    // Validate input
+    if (!id || !paymentIntentId) {
+        console.warn('Invalid input for manual EMI payment update', {
+            id,
+            paymentIntentId
+        });
+        return res.status(400).json({
+            error: 'EMI Payment ID and Payment Intent ID are required',
+            details: { id, paymentIntentId }
+        });
+    }
+
+    try {
+        // Log the incoming update request
+        console.log(`Attempting to update EMI payment status for ID: ${id}, Payment Intent: ${paymentIntentId}`);
+
+        // Retrieve the payment intent from Stripe
+        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+
+        console.log('Stripe Payment Intent Retrieved for EMI', {
+            id: paymentIntent.id,
+            status: paymentIntent.status,
+            amount: paymentIntent.amount,
+            currency: paymentIntent.currency
+        });
+
+        // Find the corresponding EMI payment in the database
+        let emiPayment = await EMIPayment.findById(id);
+
+        // If not found by ID, try to find by gatewayPaymentId
+        if (!emiPayment) {
+            emiPayment = await EMIPayment.findOne({
+                gatewayPaymentId: paymentIntentId
+            });
+        }
+
+        if (!emiPayment) {
+            console.error(`EMI Payment not found for ID: ${id} or Payment Intent: ${paymentIntentId}`);
+            return res.status(404).json({
+                error: 'EMI Payment record not found',
+                details: { id, paymentIntentId }
+            });
+        }
+
+        // Check payment intent status
+        if (paymentIntent.status !== 'succeeded') {
+            console.warn(`Payment Intent ${paymentIntentId} status is not 'succeeded'. Current status: ${paymentIntent.status}`);
+            return res.status(400).json({
+                error: 'Payment not yet completed',
+                currentStatus: paymentIntent.status
+            });
+        }
+
+        // Update EMI payment status
+        emiPayment.status = status || 'paid';
+        emiPayment.paidDate = paidDate || new Date();
+        emiPayment.paymentMethod = paymentMethod || 'online';
+        emiPayment.transactionId = transactionId || paymentIntent.id;
+        emiPayment.gatewayPaymentId = paymentIntentId;
+        emiPayment.gatewayResponse = JSON.stringify(paymentIntent);
+
+        // Save the updated EMI payment
+        await emiPayment.save();
+
+        // Check if all EMIs are paid for this payment
+        const mainPayment = await Payment.findById(emiPayment.payment);
+        if (mainPayment) {
+            const pendingEMIs = await EMIPayment.countDocuments({
+                payment: mainPayment._id,
+                status: { $in: ['pending', 'overdue'] }
+            });
+
+            if (pendingEMIs === 0) {
+                mainPayment.status = 'completed';
+                await mainPayment.save();
+
+                // Update student status
+                await Student.findByIdAndUpdate(mainPayment.student, {
+                    status: 'active',
+                    feeStatus: 'complete'
+                });
+            }
+        }
+
+        // Log successful update
+        console.log(`EMI Payment ${id} successfully updated to paid`, {
+            emiPaymentDetails: {
+                _id: emiPayment._id,
+                studentId: emiPayment.student,
+                amount: emiPayment.amount,
+                installmentNumber: emiPayment.installmentNumber
+            }
+        });
+
+        return res.status(200).json({
+            message: 'EMI Payment status updated successfully',
+            emiPaymentId: emiPayment._id,
+            status: emiPayment.status
+        });
+
+    } catch (error) {
+        // Log any unexpected errors
+        console.error('Error in manual EMI payment update', {
+            error: error.message,
+            stack: error.stack,
+            id,
+            paymentIntentId
+        });
+
+        return res.status(500).json({
+            error: 'Internal server error during EMI payment status update',
+            details: error.message
+        });
+    }
+};
+
 // Get Stripe configuration
 export const getConfig = async (req, res) => {
     try {
@@ -491,4 +619,4 @@ export const getConfig = async (req, res) => {
         console.error('Error getting Stripe config:', error);
         res.status(500).json({ error: 'Failed to get Stripe configuration' });
     }
-}; 
+};

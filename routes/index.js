@@ -102,7 +102,7 @@ router.get('/payments', paymentController.getPayments);
 router.post('/payments/emi', paymentController.addEMIPayment);
 router.get('/payments/emi', paymentController.getEMIPayments);
 router.put('/payments/emi/:id', paymentController.updateEMIPayment);
-router.post('/payments/emi/:id/update', paymentController.updateEMIPayment);
+router.post('/payments/emi/:id/update', stripeController.manualEMIPaymentUpdate);
 router.delete('/payments/:id', authenticate, authorize(['admin']), paymentController.deletePayment);
 
 // ----- PDF -----
@@ -219,6 +219,7 @@ router.post('/stripe/webhook', express.raw({ type: 'application/json' }), stripe
 router.get('/stripe/payment-methods/:studentId', authenticate, stripeController.getPaymentMethods);
 // Stripe manual payment status update - no auth required for client-side payment completion
 router.post('/stripe/manual-update', stripeController.manualPaymentStatusUpdate);
+router.post('/payments/emi/:id/update', stripeController.manualEMIPaymentUpdate);
 
 
 
