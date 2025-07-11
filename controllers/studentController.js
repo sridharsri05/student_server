@@ -63,6 +63,22 @@ export const getStudents = async (_, res) => {
     }
 };
 
+// Get student by ID
+export const getStudentById = async (req, res) => {
+    try {
+        const student = await Student.findById(req.params.id)
+            .populate('university course coursePackage batchPreference courseMode nationality');
+        
+        if (!student) {
+            return res.status(404).json({ error: 'Student not found', success: false });
+        }
+        
+        res.json({ student, success: true });
+    } catch (err) {
+        res.status(500).json({ error: err.message, success: false });
+    }
+};
+
 
 // Get students by filters
 export const getStudentsByFilters = async (req, res) => {

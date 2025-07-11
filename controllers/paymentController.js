@@ -309,6 +309,20 @@ export const createPayment = async (req, res) => {
 
         const payment = new Payment(paymentDataWithInstallments);
 
+        // Calculate remaining amount
+        const totalAmount = payment.totalAmount || 0;
+        const depositAmount = payment.depositAmount || 0;
+        payment.remainingAmount = totalAmount - depositAmount;
+
+        // Determine proper payment status based on deposit vs total
+        if (depositAmount >= totalAmount) {
+            payment.status = 'completed';
+        } else if (depositAmount > 0) {
+            payment.status = 'partial';
+        } else {
+            payment.status = 'pending';
+        }
+
         const savedPayment = await payment.save();
 
         // Create EMI records if there are installments and there's a remaining amount
@@ -333,7 +347,7 @@ export const createPayment = async (req, res) => {
                         installmentNumber: installment.month || (i + 1),
                         amount: parseFloat(installment.amount),
                         dueDate: dueDate,
-                        status: installment.status || 'pending',
+                        status: installment.status || 'pending', // Keep as pending unless explicitly set
                         paymentMethod: payment.paymentMethod,
                         currency: payment.currency || 'INR'
                     }).save();
@@ -420,9 +434,12 @@ export const createPayment = async (req, res) => {
                 student.feeStatus = 'pending';
             }
 
-            // Update student status if payment is completed
+            // Only update student to active-paid when payment is actually completed
             if (payment.status === 'completed') {
                 student.status = 'active-paid';
+            } else if (student.status !== 'active-paid') {
+                // Otherwise set to active if they've made a partial payment
+                student.status = payment.depositAmount > 0 ? 'active' : student.status;
             }
 
             // Set next payment due date if there's remaining amount

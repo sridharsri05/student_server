@@ -724,15 +724,53 @@ export const manualEMIPaymentUpdate = async (req, res) => {
                 status: { $in: ['pending', 'overdue'] }
             });
 
+            // Update main payment status based on EMIs
             if (pendingEMIs === 0) {
                 mainPayment.status = 'completed';
-                await mainPayment.save();
+            } else {
+                mainPayment.status = 'partial';
+            }
+            await mainPayment.save();
 
-                // Update student status
-                await Student.findByIdAndUpdate(mainPayment.student, {
-                    status: 'active',
-                    feeStatus: 'complete'
+            // Update student record
+            const student = await Student.findById(mainPayment.student);
+            if (student) {
+                // Calculate how much has been paid in total (deposit + paid EMIs)
+                const paidEMIs = await EMIPayment.find({
+                    payment: mainPayment._id,
+                    status: 'paid'
                 });
+                
+                const totalPaidInEMIs = paidEMIs.reduce((total, emi) => total + (emi.amount || 0), 0);
+                const totalPaid = (mainPayment.depositAmount || 0) + totalPaidInEMIs;
+                
+                student.paidAmount = totalPaid;
+                student.remainingAmount = (student.totalFees || mainPayment.totalAmount) - totalPaid;
+                
+                // Update fee status
+                if (student.remainingAmount <= 0) {
+                    student.feeStatus = 'complete';
+                    student.status = 'active-paid';
+                } else {
+                    student.feeStatus = 'partial';
+                    student.status = 'active';
+                }
+
+                // If there are more pending EMIs, set the next due date
+                if (pendingEMIs > 0) {
+                    const nextEMI = await EMIPayment.findOne({
+                        payment: mainPayment._id,
+                        status: { $in: ['pending', 'overdue'] }
+                    }).sort({ dueDate: 1 });
+                    
+                    if (nextEMI) {
+                        student.nextPaymentDue = nextEMI.dueDate;
+                    }
+                } else {
+                    student.nextPaymentDue = null; // No more payments due
+                }
+                
+                await student.save();
             }
         }
 
