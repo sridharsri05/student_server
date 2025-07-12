@@ -95,10 +95,28 @@ export const getEMIPayments = async (req, res) => {
         }
 
         // Fetch EMI payments with student details
-        const emiPayments = await EMIPayment.find(query)
+        let emiPayments = await EMIPayment.find(query)
             .populate('student', 'name email phone')
             .populate('payment')
             .sort({ dueDate: 1 });
+
+        // Add default student info for entries with null student
+        emiPayments = emiPayments.map(payment => {
+            // If the payment is returned as a plain object (not a mongoose document)
+            const paymentObj = payment.toObject ? payment.toObject() : payment;
+
+            // If student is null, add a placeholder
+            if (!paymentObj.student) {
+                paymentObj.student = {
+                    _id: 'unknown',
+                    name: 'Unknown Student',
+                    email: '',
+                    phone: ''
+                };
+            }
+
+            return paymentObj;
+        });
 
         res.json(emiPayments);
     } catch (error) {
@@ -133,7 +151,7 @@ export const updateEMIPayment = async (req, res) => {
         await emiPayment.save();
 
         // If payment is marked as paid, check if all EMIs are paid
-        if (updates.status === 'paid') {
+        if (updates.status === 'paid' && emiPayment.payment) {
             const mainPayment = await Payment.findById(emiPayment.payment);
             if (mainPayment) {
                 const pendingEMIs = await EMIPayment.countDocuments({
@@ -145,11 +163,13 @@ export const updateEMIPayment = async (req, res) => {
                     mainPayment.status = 'completed';
                     await mainPayment.save();
 
-                    // Update student status
+                    // Update student status if student reference exists
+                    if (mainPayment.student) {
                     await Student.findByIdAndUpdate(mainPayment.student, {
                         status: 'active',
                         feeStatus: 'complete'
                     });
+                    }
                 }
             }
         }
@@ -341,13 +361,15 @@ export const createPayment = async (req, res) => {
                         nextDueDate = dueDate;
                     }
 
+                    // IMPORTANT: Always set initial status to 'pending' regardless of deposit
+                    // This ensures that installments must be explicitly paid
                     await new EMIPayment({
                         payment: savedPayment._id,
                         student: payment.student,
                         installmentNumber: installment.month || (i + 1),
                         amount: parseFloat(installment.amount),
                         dueDate: dueDate,
-                        status: installment.status || 'pending', // Keep as pending unless explicitly set
+                        status: 'pending', // Always pending initially
                         paymentMethod: payment.paymentMethod,
                         currency: payment.currency || 'INR'
                     }).save();
@@ -372,7 +394,7 @@ export const createPayment = async (req, res) => {
                         installmentNumber: i + 1,
                         amount: monthlyAmount,
                         dueDate: dueDate,
-                        status: 'pending',
+                        status: 'pending', // Always pending initially
                         paymentMethod: payment.paymentMethod,
                         currency: payment.currency || 'INR'
                     }).save();
@@ -467,296 +489,4 @@ export const updatePaymentStatus = async (req, res) => {
         const validStatuses = ['completed', 'pending', 'failed', 'refunded', 'processing', 'partial'];
         if (status && !validStatuses.includes(status)) {
             return res.status(400).json({
-                error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
-            });
-        }
-
-        const payment = await Payment.findById(id);
-        if (!payment) {
-            return res.status(404).json({ error: 'Payment not found' });
-        }
-
-        // Update status and transaction ID if provided
-        if (status) {
-            payment.status = status;
-        }
-        if (transactionId) {
-            payment.transactionId = transactionId;
-        }
-
-        // Set paid date if status is completed
-        if (status === 'completed') {
-            payment.paidDate = new Date();
-
-            // Update student status
-            await Student.findByIdAndUpdate(payment.student, {
-                status: 'active',
-                feeStatus: 'complete'
-            });
-
-            // Generate receipt number if not already generated
-            if (!payment.receiptNumber) {
-                const count = await Payment.countDocuments();
-                payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
-            }
-        }
-        // Handle partial payment status
-        else if (status === 'partial' && payment.depositAmount > 0) {
-            // Update student status for partial payments
-            await Student.findByIdAndUpdate(payment.student, {
-                status: 'active',
-                feeStatus: 'partial'
-            });
-
-            // Generate receipt number for the deposit if not already generated
-            if (!payment.receiptNumber) {
-                const count = await Payment.countDocuments();
-                payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
-            }
-        }
-
-        await payment.save();
-
-        res.json({
-            message: 'Payment status updated successfully',
-            payment
-        });
-    } catch (error) {
-        console.error('Error updating payment status:', error);
-        res.status(500).json({
-            error: 'Failed to update payment status',
-            details: error.message
-        });
-    }
-};
-
-export const getPendingPayments = async (req, res) => {
-    try {
-        const pendingPayments = await Payment.find({ status: 'pending' })
-            .populate('student', 'name phone email')
-            .sort({ dueDate: 1 });
-
-        res.json({ pendingPayments });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-export const getPaymentById = async (req, res) => {
-    try {
-        const payment = await Payment.findById(req.params.id)
-            .populate('student', 'name phone email');
-
-        if (!payment) {
-            return res.status(404).json({ message: 'Payment not found' });
-        }
-
-        res.json(payment);
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-// Get EMI analytics
-export const getEMIAnalytics = async (req, res) => {
-    try {
-        const [
-            totalEMIs,
-            paidEMIs,
-            overdueEMIs,
-            upcomingEMIs
-        ] = await Promise.all([
-            EMIPayment.countDocuments(),
-            EMIPayment.countDocuments({ status: 'paid' }),
-            EMIPayment.countDocuments({ status: 'overdue' }),
-            EMIPayment.countDocuments({
-                status: 'pending',
-                dueDate: { $gt: new Date() }
-            })
-        ]);
-
-        // Calculate collection efficiency
-        const collectionEfficiency = (paidEMIs / (paidEMIs + overdueEMIs)) * 100 || 0;
-
-        // Get monthly EMI collection trend
-        const monthlyCollection = await EMIPayment.aggregate([
-            { $match: { status: 'paid' } },
-            {
-                $group: {
-                    _id: {
-                        year: { $year: '$paidDate' },
-                        month: { $month: '$paidDate' }
-                    },
-                    total: { $sum: '$amount' }
-                }
-            },
-            { $sort: { '_id.year': -1, '_id.month': -1 } },
-            { $limit: 6 }
-        ]);
-
-        res.json({
-            totalEMIs,
-            paidEMIs,
-            overdueEMIs,
-            upcomingEMIs,
-            collectionEfficiency,
-            monthlyCollection
-        });
-    } catch (error) {
-        res.status(500).json({ message: error.message });
-    }
-};
-
-// Helper function to get monthly revenue
-const getMonthlyRevenue = async () => {
-    const months = [];
-    for (let i = 5; i >= 0; i--) {
-        const startDate = startOfMonth(subMonths(new Date(), i));
-        const endDate = endOfMonth(subMonths(new Date(), i));
-
-        const monthData = await Payment.aggregate([
-            {
-                $match: {
-                    status: 'completed',
-                    createdAt: { $gte: startDate, $lte: endDate }
-                }
-            },
-            {
-                $group: {
-                    _id: null,
-                    revenue: { $sum: '$totalAmount' },
-                    count: { $sum: 1 }
-                }
-            }
-        ]);
-
-        months.push({
-            month: startDate.toLocaleString('default', { month: 'short' }),
-            revenue: monthData[0]?.revenue || 0,
-            payments: monthData[0]?.count || 0
-        });
-    }
-    return months;
-};
-
-export const generatePaymentReport = async (req, res) => {
-    try {
-        const { startDate, endDate, filters } = req.query;
-        const query = {};
-
-        if (startDate && endDate) {
-            query.createdAt = {
-                $gte: new Date(startDate),
-                $lte: new Date(endDate)
-            };
-        }
-
-        // Get payments with student details
-        const payments = await Payment.find(query)
-            .populate('student', 'name email phone')
-            .sort({ createdAt: -1 });
-
-        // Get analytics data
-        const analytics = await getAnalyticsSummary(query);
-
-        // Generate PDF report
-        const pdfBuffer = await generatePaymentReportPDF(payments, analytics, {
-            dateFrom: startDate,
-            dateTo: endDate,
-            ...filters
-        });
-
-        res.setHeader('Content-Type', 'application/pdf');
-        res.setHeader('Content-Disposition', 'attachment; filename=payment-report.pdf');
-        res.send(pdfBuffer);
-    } catch (error) {
-        console.error('Error generating payment report:', error);
-        res.status(500).json({ error: 'Failed to generate payment report' });
-    }
-};
-
-// Helper function to get analytics summary
-const getAnalyticsSummary = async (query = {}) => {
-    const [revenueData, pendingData, counts] = await Promise.all([
-        Payment.aggregate([
-            { $match: { ...query, status: 'completed' } },
-            { $group: { _id: null, total: { $sum: '$totalAmount' } } }
-        ]),
-        Payment.aggregate([
-            { $match: { ...query, status: 'pending' } },
-            { $group: { _id: null, total: { $sum: '$remainingAmount' } } }
-        ]),
-        Payment.aggregate([
-            { $match: query },
-            {
-                $group: {
-                    _id: '$status',
-                    count: { $sum: 1 }
-                }
-            }
-        ])
-    ]);
-
-    const statusCounts = counts.reduce((acc, curr) => {
-        acc[curr._id] = curr.count;
-        return acc;
-    }, {});
-
-    return {
-        totalRevenue: revenueData[0]?.total || 0,
-        pendingPayments: pendingData[0]?.total || 0,
-        successfulPayments: statusCounts['completed'] || 0,
-        failedPayments: statusCounts['failed'] || 0
-    };
-};
-
-/**
- * Delete a payment by ID
- * @route DELETE /payments/:id
- * @access Private (Admin only)
- */
-export const deletePayment = async (req, res) => {
-    try {
-        const { id } = req.params;
-
-        const payment = await Payment.findById(id);
-
-        if (!payment) {
-            return res.status(404).json({ message: 'Payment not found' });
-        }
-
-        // Check if payment has related EMI payments
-        const relatedEMIs = await EMIPayment.find({ payment: id });
-
-        // Delete related EMI payments if any
-        if (relatedEMIs.length > 0) {
-            await EMIPayment.deleteMany({ payment: id });
-        }
-
-        // Delete the payment
-        await Payment.findByIdAndDelete(id);
-
-        // If payment was completed, update student status
-        if (payment.status === 'completed' && payment.student) {
-            // Check if student has any other completed payments
-            const otherCompletedPayments = await Payment.countDocuments({
-                student: payment.student,
-                status: 'completed',
-                _id: { $ne: id }
-            });
-
-            if (otherCompletedPayments === 0) {
-                // No other completed payments, update student status
-                await Student.findByIdAndUpdate(payment.student, {
-                    status: 'active',
-                    feeStatus: 'pending'
-                });
-            }
-        }
-
-        res.json({ message: 'Payment deleted successfully' });
-    } catch (error) {
-        console.error('Error deleting payment:', error);
-        res.status(500).json({ message: error.message });
-    }
-};
+                error: `

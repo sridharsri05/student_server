@@ -171,7 +171,10 @@ async function handlePaymentSuccess(paymentIntent) {
             // Update main payment record
             const payment = await Payment.findById(paymentId);
             if (payment) {
-                payment.status = 'completed';
+                // If this is a deposit payment (partial payment), set status to 'partial'
+                // Only set to 'completed' if it's a full payment
+                const isFullPayment = payment.depositAmount >= payment.totalAmount;
+                payment.status = isFullPayment ? 'completed' : 'partial';
                 payment.transactionId = paymentIntent.id;
                 payment.paidDate = new Date();
                 payment.gatewayResponse = JSON.stringify(paymentIntent);
@@ -219,9 +222,13 @@ async function handlePaymentSuccess(paymentIntent) {
                 } else {
                     console.warn(`Student not found for payment: ${payment._id}`);
                 }
+
+                // IMPORTANT: Do NOT automatically mark any EMIs as paid when processing a deposit payment
+                // EMIs should only be marked as paid when they are explicitly paid
             }
         }
 
+        // Only handle EMI payment if this payment intent was specifically for an EMI
         if (emiPaymentId) {
             // Update EMI payment record
             const emiPayment = await EMIPayment.findById(emiPaymentId);
@@ -255,13 +262,14 @@ async function handlePaymentSuccess(paymentIntent) {
 
                         if (student) {
                             // Update student's fee information for EMI completion
-                            // Calculate total paid amount from all EMIs
+                            // Calculate total paid amount from all EMIs plus deposit
                             const paidEMIs = await EMIPayment.find({
                                 payment: mainPayment._id,
                                 status: 'paid'
                             });
 
-                            const totalPaid = paidEMIs.reduce((sum, emi) => sum + (emi.amount || 0), 0);
+                            const totalPaid = (mainPayment.depositAmount || 0) +
+                                paidEMIs.reduce((sum, emi) => sum + (emi.amount || 0), 0);
 
                             // Update student record
                             student.paidAmount = totalPaid;
@@ -740,13 +748,13 @@ export const manualEMIPaymentUpdate = async (req, res) => {
                     payment: mainPayment._id,
                     status: 'paid'
                 });
-                
+
                 const totalPaidInEMIs = paidEMIs.reduce((total, emi) => total + (emi.amount || 0), 0);
                 const totalPaid = (mainPayment.depositAmount || 0) + totalPaidInEMIs;
-                
+
                 student.paidAmount = totalPaid;
                 student.remainingAmount = (student.totalFees || mainPayment.totalAmount) - totalPaid;
-                
+
                 // Update fee status
                 if (student.remainingAmount <= 0) {
                     student.feeStatus = 'complete';
@@ -762,14 +770,14 @@ export const manualEMIPaymentUpdate = async (req, res) => {
                         payment: mainPayment._id,
                         status: { $in: ['pending', 'overdue'] }
                     }).sort({ dueDate: 1 });
-                    
+
                     if (nextEMI) {
                         student.nextPaymentDue = nextEMI.dueDate;
                     }
                 } else {
                     student.nextPaymentDue = null; // No more payments due
                 }
-                
+
                 await student.save();
             }
         }
