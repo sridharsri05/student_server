@@ -285,8 +285,27 @@ export const getPaymentAnalytics = async (req, res) => {
             ])
         ]);
 
-        // Get monthly revenue trend (last 6 months)
-        const monthlyRevenue = await getMonthlyRevenue();
+        // Calculate monthly revenue for the last 6 months
+        const monthlyRevenue = await Payment.aggregate([
+            {
+                $match: {
+                    status: 'completed',
+                    createdAt: {
+                        $gte: new Date(new Date().setMonth(new Date().getMonth() - 6))
+                    }
+                }
+            },
+            {
+                $group: {
+                    _id: {
+                        year: { $year: '$createdAt' },
+                        month: { $month: '$createdAt' }
+                    },
+                    total: { $sum: '$totalAmount' }
+                }
+            },
+            { $sort: { '_id.year': 1, '_id.month': 1 } }
+        ]);
 
         // Get payment method distribution
         const paymentMethodDistribution = await Payment.aggregate([
@@ -300,7 +319,11 @@ export const getPaymentAnalytics = async (req, res) => {
             successfulPayments,
             failedPayments,
             totalPayments,
-            monthlyRevenue,
+            monthlyRevenue: monthlyRevenue.map(item => ({
+                month: item._id.month,
+                year: item._id.year,
+                total: item.total
+            })),
             paymentMethodDistribution,
             successRate: (successfulPayments / totalPayments) * 100 || 0
         });
