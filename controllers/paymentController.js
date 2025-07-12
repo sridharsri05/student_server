@@ -165,10 +165,10 @@ export const updateEMIPayment = async (req, res) => {
 
                     // Update student status if student reference exists
                     if (mainPayment.student) {
-                    await Student.findByIdAndUpdate(mainPayment.student, {
-                        status: 'active',
-                        feeStatus: 'complete'
-                    });
+                        await Student.findByIdAndUpdate(mainPayment.student, {
+                            status: 'active',
+                            feeStatus: 'complete'
+                        });
                     }
                 }
             }
@@ -489,4 +489,175 @@ export const updatePaymentStatus = async (req, res) => {
         const validStatuses = ['completed', 'pending', 'failed', 'refunded', 'processing', 'partial'];
         if (status && !validStatuses.includes(status)) {
             return res.status(400).json({
-                error: `
+                error: `Invalid payment status: ${status}`
+            });
+        }
+
+        const payment = await Payment.findById(id);
+
+        if (!payment) {
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+
+        // Update the payment status
+        payment.status = status;
+        payment.transactionId = transactionId;
+
+        await payment.save();
+
+        // If payment is marked as paid, check if all EMIs are paid
+        if (status === 'paid' && payment.installments && payment.installments.length > 0) {
+            const emiPayments = await EMIPayment.find({ payment: payment._id });
+            const allEMIsPaid = await Promise.all(emiPayments.map(async emi => {
+                emi.status = 'paid';
+                await emi.save();
+                return emi.status === 'paid';
+            }));
+
+            if (allEMIsPaid.every(paid => paid)) {
+                payment.status = 'completed';
+                await payment.save();
+
+                // Update student status if student reference exists
+                if (payment.student) {
+                    await Student.findByIdAndUpdate(payment.student, {
+                        status: 'active',
+                        feeStatus: 'complete'
+                    });
+                }
+            }
+        }
+
+        res.json(payment);
+    } catch (error) {
+        console.error('Error updating payment status:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const deletePayment = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Find the payment
+        const payment = await Payment.findById(id);
+        if (!payment) {
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+
+        // Delete associated EMI payments
+        await EMIPayment.deleteMany({ payment: id });
+
+        // Delete the payment
+        await Payment.findByIdAndDelete(id);
+
+        // Update student's payment information if applicable
+        if (payment.student) {
+            const student = await Student.findById(payment.student);
+            if (student) {
+                // Recalculate total fees and paid amount
+                student.paidAmount = (student.paidAmount || 0) - (payment.depositAmount || 0);
+                student.remainingAmount = (student.totalFees || 0) - student.paidAmount;
+
+                // Update fee status
+                if (student.remainingAmount <= 0) {
+                    student.feeStatus = 'complete';
+                } else if (student.paidAmount > 0) {
+                    student.feeStatus = 'partial';
+                } else {
+                    student.feeStatus = 'pending';
+                }
+
+                await student.save();
+            }
+        }
+
+        res.json({ message: 'Payment deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting payment:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const generatePaymentReport = async (req, res) => {
+    try {
+        const { startDate, endDate, status } = req.query;
+
+        const query = {};
+
+        // Add date filter if both startDate and endDate are provided
+        if (startDate && endDate) {
+            query.createdAt = {
+                $gte: new Date(startDate),
+                $lte: new Date(endDate)
+            };
+        }
+
+        // Add status filter if provided
+        if (status) {
+            query.status = status;
+        }
+
+        // Fetch payments with populated student details
+        const payments = await Payment.find(query)
+            .populate('student', 'name email phone')
+            .populate('feeStructure', 'name')
+            .sort({ createdAt: -1 });
+
+        // Generate PDF report
+        const pdfBuffer = await generatePaymentReportPDF(payments);
+
+        // Send PDF as response
+        res.setHeader('Content-Type', 'application/pdf');
+        res.setHeader('Content-Disposition', `attachment; filename=payment-report-${new Date().toISOString().split('T')[0]}.pdf`);
+        res.send(pdfBuffer);
+    } catch (error) {
+        console.error('Error generating payment report:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getPendingPayments = async (req, res) => {
+    try {
+        const { studentId } = req.query;
+
+        const query = {
+            status: { $in: ['pending', 'partial', 'processing'] }
+        };
+
+        // Optional filter by student
+        if (studentId) {
+            query.student = studentId;
+        }
+
+        // Fetch pending payments with populated student details
+        const pendingPayments = await Payment.find(query)
+            .populate('student', 'name email phone')
+            .populate('feeStructure', 'name')
+            .sort({ createdAt: -1 });
+
+        res.json(pendingPayments);
+    } catch (error) {
+        console.error('Error fetching pending payments:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
+
+export const getPaymentById = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        const payment = await Payment.findById(id)
+            .populate('student', 'name email phone')
+            .populate('feeStructure', 'name');
+
+        if (!payment) {
+            return res.status(404).json({ error: 'Payment not found' });
+        }
+
+        res.json(payment);
+    } catch (error) {
+        console.error('Error fetching payment by ID:', error);
+        res.status(500).json({ error: error.message });
+    }
+};
