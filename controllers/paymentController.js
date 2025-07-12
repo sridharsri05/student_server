@@ -464,7 +464,7 @@ export const updatePaymentStatus = async (req, res) => {
         const { status, transactionId } = req.body;
 
         // Validate status
-        const validStatuses = ['completed', 'pending', 'failed', 'refunded', 'processing'];
+        const validStatuses = ['completed', 'pending', 'failed', 'refunded', 'processing', 'partial'];
         if (status && !validStatuses.includes(status)) {
             return res.status(400).json({
                 error: `Invalid status. Must be one of: ${validStatuses.join(', ')}`
@@ -495,6 +495,20 @@ export const updatePaymentStatus = async (req, res) => {
             });
 
             // Generate receipt number if not already generated
+            if (!payment.receiptNumber) {
+                const count = await Payment.countDocuments();
+                payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
+            }
+        }
+        // Handle partial payment status
+        else if (status === 'partial' && payment.depositAmount > 0) {
+            // Update student status for partial payments
+            await Student.findByIdAndUpdate(payment.student, {
+                status: 'active',
+                feeStatus: 'partial'
+            });
+
+            // Generate receipt number for the deposit if not already generated
             if (!payment.receiptNumber) {
                 const count = await Payment.countDocuments();
                 payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
