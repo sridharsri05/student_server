@@ -597,9 +597,9 @@ export const manualEMIPaymentUpdate = async (req, res) => {
         }
 
         // Update EMI payment details
-        if (status) emiPayment.status = status;
-        if (paidDate) emiPayment.paidDate = new Date(paidDate);
-        if (paymentMethod) emiPayment.paymentMethod = paymentMethod;
+        emiPayment.status = 'paid';
+        emiPayment.paidDate = new Date(paidDate || Date.now());
+        emiPayment.paymentMethod = paymentMethod || 'online';
         if (paymentIntentId) emiPayment.gatewayPaymentId = paymentIntentId;
         if (transactionId) emiPayment.transactionId = transactionId;
 
@@ -612,9 +612,13 @@ export const manualEMIPaymentUpdate = async (req, res) => {
             status: { $in: ['pending', 'overdue'] }
         });
 
+        // Retrieve all EMI payments for this payment
+        const allEMIPayments = await EMIPayment.find({ payment: emiPayment.payment });
+
         // Update main payment status based on EMIs
         const mainPaymentToUpdate = await Payment.findById(emiPayment.payment);
         if (mainPaymentToUpdate) {
+            // Determine new payment status
             if (pendingEMIs === 0) {
                 mainPaymentToUpdate.status = 'completed';
             } else {
@@ -626,11 +630,7 @@ export const manualEMIPaymentUpdate = async (req, res) => {
             const student = await Student.findById(mainPaymentToUpdate.student);
             if (student) {
                 // Calculate how much has been paid in total (deposit + paid EMIs)
-                const paidEMIs = await EMIPayment.find({
-                    payment: mainPaymentToUpdate._id,
-                    status: 'paid'
-                });
-
+                const paidEMIs = allEMIPayments.filter(emi => emi.status === 'paid');
                 const totalPaidInEMIs = paidEMIs.reduce((total, emi) => total + (emi.amount || 0), 0);
                 const totalPaid = (mainPaymentToUpdate.depositAmount || 0) + totalPaidInEMIs;
 
