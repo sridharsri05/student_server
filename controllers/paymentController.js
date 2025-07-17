@@ -3,7 +3,76 @@ import EMIPayment from '../models/EMIPayment.js';
 import Student from '../models/Student.js';
 import { generateInvoicePDF, generateReceiptPDF, generatePaymentReportPDF } from '../services/pdfService.js';
 import { sendWhatsAppMessage } from '../services/whatsappService.js';
-import { startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths } from 'date-fns';
+import { startOfMonth, endOfMonth, startOfDay, endOfDay, subMonths, format } from 'date-fns';
+
+// Helper function to get monthly revenue for the last 6 months
+const getMonthlyRevenue = async () => {
+    try {
+        const today = new Date();
+        const monthlyData = [];
+
+        // Generate data for the last 6 months
+        for (let i = 0; i < 6; i++) {
+            const month = subMonths(today, i);
+            const startDate = startOfMonth(month);
+            const endDate = endOfMonth(month);
+
+            // Get completed payments for this month
+            const monthlyPayments = await Payment.aggregate([
+                {
+                    $match: {
+                        createdAt: { $gte: startDate, $lte: endDate },
+                        status: { $in: ['completed', 'partial'] }
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalAmount: { $sum: '$depositAmount' },
+                        count: { $sum: 1 }
+                    }
+                }
+            ]);
+
+            // Get EMI payments for this month
+            const monthlyEMIPayments = await EMIPayment.aggregate([
+                {
+                    $match: {
+                        paidDate: { $gte: startDate, $lte: endDate },
+                        status: 'paid'
+                    }
+                },
+                {
+                    $group: {
+                        _id: null,
+                        totalAmount: { $sum: '$amount' },
+                        count: { $sum: 1 }
+                    }
+                }
+            ]);
+
+            const totalAmount =
+                (monthlyPayments[0]?.totalAmount || 0) +
+                (monthlyEMIPayments[0]?.totalAmount || 0);
+
+            const totalCount =
+                (monthlyPayments[0]?.count || 0) +
+                (monthlyEMIPayments[0]?.count || 0);
+
+            monthlyData.push({
+                month: format(month, 'MMM yyyy'),
+                amount: totalAmount,
+                count: totalCount
+            });
+        }
+
+        // Return in chronological order (oldest first)
+        return monthlyData.reverse();
+    } catch (error) {
+        console.error('Error calculating monthly revenue:', error);
+        return [];
+    }
+};
 
 export const initiatePayment = async (req, res) => {
     try {
@@ -305,6 +374,7 @@ export const getPaymentAnalytics = async (req, res) => {
             successRate: (successfulPayments / totalPayments) * 100 || 0
         });
     } catch (error) {
+        console.error('Error in getPaymentAnalytics:', error);
         res.status(500).json({ message: error.message });
     }
 };

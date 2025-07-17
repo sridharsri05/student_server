@@ -166,7 +166,7 @@ export const handleWebhook = async (req, res) => {
 async function handlePaymentSuccess(paymentIntent) {
     try {
         const { paymentId, emiPaymentId } = paymentIntent.metadata;
-        
+
         console.log('Processing payment success webhook', {
             paymentIntent: paymentIntent.id,
             metadata: paymentIntent.metadata,
@@ -187,7 +187,7 @@ async function handlePaymentSuccess(paymentIntent) {
                     remainingAmount: payment.remainingAmount,
                     status: payment.status
                 });
-                
+
                 // If this is a deposit payment (partial payment), set status to 'partial'
                 // Only set to 'completed' if it's a full payment
                 const isFullPayment = payment.depositAmount >= payment.totalAmount;
@@ -243,13 +243,16 @@ async function handlePaymentSuccess(paymentIntent) {
                 // IMPORTANT: Check if any EMIs were incorrectly marked as paid
                 const emiPayments = await EMIPayment.find({ payment: payment._id });
                 console.log(`Found ${emiPayments.length} EMI payments for payment ${payment._id}`);
-                
+
+                // FIXED: Ensure all EMIs are set to pending when deposit payment is made
+                // Only explicit EMI payments should mark an installment as paid
                 for (const emi of emiPayments) {
-                    console.log(`EMI #${emi.installmentNumber} status: ${emi.status}`);
-                    
-                    // Ensure EMIs are not automatically marked as paid from a deposit payment
-                    if (emi.status === 'paid' && !emi.paidDate) {
-                        console.log(`Correcting incorrectly marked EMI #${emi.installmentNumber} to pending status`);
+                    console.log(`Checking EMI #${emi.installmentNumber} status: ${emi.status}`);
+
+                    // If this is a deposit payment and not an explicit EMI payment,
+                    // make sure all EMIs remain in pending status
+                    if (!emiPaymentId && (emi.status === 'paid' && !emi.paidDate)) {
+                        console.log(`Correcting EMI #${emi.installmentNumber} to pending status`);
                         emi.status = 'pending';
                         await emi.save();
                     }
@@ -260,12 +263,12 @@ async function handlePaymentSuccess(paymentIntent) {
         // Only handle EMI payment if this payment intent was specifically for an EMI
         if (emiPaymentId) {
             console.log(`Processing EMI payment with ID: ${emiPaymentId}`);
-            
+
             // Update EMI payment record
             const emiPayment = await EMIPayment.findById(emiPaymentId);
             if (emiPayment) {
                 console.log(`Found EMI payment #${emiPayment.installmentNumber}, current status: ${emiPayment.status}`);
-                
+
                 emiPayment.status = 'paid';
                 emiPayment.paidDate = new Date();
                 emiPayment.transactionId = paymentIntent.id;
