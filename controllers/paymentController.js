@@ -661,3 +661,91 @@ export const getPaymentById = async (req, res) => {
         res.status(500).json({ error: error.message });
     }
 };
+
+export const deleteEMIPayment = async (req, res) => {
+    try {
+        const { id } = req.params;
+
+        // Find the EMI payment
+        const emiPayment = await EMIPayment.findById(id);
+        if (!emiPayment) {
+            return res.status(404).json({ error: 'EMI Payment not found' });
+        }
+
+        // Store reference to parent payment and amount before deletion
+        const paymentId = emiPayment.payment;
+        const emiAmount = emiPayment.amount;
+        const studentId = emiPayment.student;
+        const wasPaid = emiPayment.status === 'paid';
+
+        // Delete the EMI payment
+        await EMIPayment.findByIdAndDelete(id);
+
+        // Update the main payment record
+        if (paymentId) {
+            const mainPayment = await Payment.findById(paymentId);
+            if (mainPayment) {
+                // If the EMI was paid, adjust the remaining amount
+                if (wasPaid) {
+                    mainPayment.remainingAmount = (mainPayment.remainingAmount || 0) + emiAmount;
+                }
+
+                // Check if there are any remaining EMIs
+                const remainingEMIs = await EMIPayment.countDocuments({ payment: paymentId });
+
+                if (remainingEMIs === 0) {
+                    // If no EMIs remain, update payment status based on remaining amount
+                    if (mainPayment.remainingAmount <= 0) {
+                        mainPayment.status = 'completed';
+                    } else if (mainPayment.depositAmount > 0) {
+                        mainPayment.status = 'partial';
+                    } else {
+                        mainPayment.status = 'pending';
+                    }
+                } else {
+                    // If EMIs remain, check if any are pending
+                    const pendingEMIs = await EMIPayment.countDocuments({
+                        payment: paymentId,
+                        status: { $in: ['pending', 'overdue'] }
+                    });
+
+                    if (pendingEMIs === 0) {
+                        mainPayment.status = 'completed';
+                    } else {
+                        mainPayment.status = 'partial';
+                    }
+                }
+
+                await mainPayment.save();
+
+                // Update student record if needed
+                if (studentId) {
+                    const student = await Student.findById(studentId);
+                    if (student) {
+                        // If the EMI was paid, adjust the paid amount
+                        if (wasPaid) {
+                            student.paidAmount = Math.max(0, (student.paidAmount || 0) - emiAmount);
+                            student.remainingAmount = (student.totalFees || 0) - student.paidAmount;
+
+                            // Update fee status
+                            if (student.remainingAmount <= 0) {
+                                student.feeStatus = 'complete';
+                            } else if (student.paidAmount > 0) {
+                                student.feeStatus = 'partial';
+                            } else {
+                                student.feeStatus = 'pending';
+                            }
+
+                            await student.save();
+                        }
+                    }
+                }
+            }
+        }
+
+        res.json({ message: 'EMI Payment deleted successfully' });
+    } catch (error) {
+        console.error('Error deleting EMI payment:', error);
+        res.status(500).json({ error: error.message });
+    }
+};

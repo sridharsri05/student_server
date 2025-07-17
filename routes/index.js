@@ -107,6 +107,9 @@ router.put('/payments/emi/:id', paymentController.updateEMIPayment);
 router.post('/payments/emi/:id/update', stripeController.manualEMIPaymentUpdate);
 router.delete('/payments/:id', authenticate, authorize(['admin']), paymentController.deletePayment);
 
+// Add the route for deleting an EMI payment
+router.delete('/payments/emi/:id', paymentController.deleteEMIPayment);
+
 // ----- PDF -----
 router.get('/pdf/invoice/:studentId/:paymentId', authenticate, authorize(['admin']), generateInvoice);
 router.get('/pdf/receipt/:studentId/:paymentId', authenticate, authorize(['admin']), generateReceipt);
