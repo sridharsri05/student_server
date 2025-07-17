@@ -5,6 +5,18 @@ import WhatsAppTemplate from '../models/WhatsAppTemplate.js';
 export const sendWhatsAppMessage = async (phoneNumber, message) => {
     try {
         const { instanceId, token, baseUrl } = ultramsgConfig;
+        
+        // Check if token and instanceId are available
+        if (!token) {
+            console.error('❌ WhatsApp error: UltraMsg token is not configured');
+            throw new Error('UltraMsg token is not configured in environment variables');
+        }
+        
+        if (!instanceId) {
+            console.error('❌ WhatsApp error: UltraMsg instanceId is not configured');
+            throw new Error('UltraMsg instanceId is not configured in environment variables');
+        }
+        
         const url = `${baseUrl}/${instanceId}/messages/chat`;
 
         // Format phone number if needed (remove spaces, ensure it starts with country code)
@@ -34,6 +46,18 @@ export const sendWhatsAppMessage = async (phoneNumber, message) => {
 export const sendWhatsAppDocument = async (phoneNumber, documentUrl, caption = '') => {
     try {
         const { instanceId, token, baseUrl } = ultramsgConfig;
+        
+        // Check if token and instanceId are available
+        if (!token) {
+            console.error('❌ WhatsApp error: UltraMsg token is not configured');
+            throw new Error('UltraMsg token is not configured in environment variables');
+        }
+        
+        if (!instanceId) {
+            console.error('❌ WhatsApp error: UltraMsg instanceId is not configured');
+            throw new Error('UltraMsg instanceId is not configured in environment variables');
+        }
+        
         const url = `${baseUrl}/${instanceId}/messages/document`;
 
         const formattedPhone = formatPhoneNumber(phoneNumber);
@@ -111,13 +135,48 @@ export const sendWhatsAppTemplate = async (phoneNumber, templateNameOrId, variab
 export const getInstanceStatus = async () => {
     try {
         const { instanceId, token, baseUrl } = ultramsgConfig;
+
+        // Check if token and instanceId are available
+        if (!token) {
+            console.error('❌ WhatsApp error: UltraMsg token is not configured');
+            return {
+                status: {
+                    instance: instanceId || 'unknown',
+                    phone: 'unconfigured',
+                    status: 'disconnected',
+                    message: 'UltraMsg token is not configured in environment variables'
+                }
+            };
+        }
+
+        if (!instanceId) {
+            console.error('❌ WhatsApp error: UltraMsg instanceId is not configured');
+            return {
+                status: {
+                    instance: 'unknown',
+                    phone: 'unconfigured',
+                    status: 'disconnected',
+                    message: 'UltraMsg instanceId is not configured in environment variables'
+                }
+            };
+        }
+
         const url = `${baseUrl}/${instanceId}/instance/status?token=${token}`;
 
         const response = await axios.get(url);
         return response.data;
     } catch (error) {
         console.error('❌ WhatsApp status error:', error.response?.data || error.message);
-        throw error;
+
+        // Return a more user-friendly error
+        return {
+            status: {
+                instance: ultramsgConfig.instanceId || 'unknown',
+                phone: 'error',
+                status: 'error',
+                error: error.response?.data?.error || error.message
+            }
+        };
     }
 };
 

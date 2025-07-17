@@ -88,9 +88,27 @@ export const sendTemplate = async (req, res) => {
 export const getStatus = async (req, res) => {
     try {
         const status = await getInstanceStatus();
+
+        // Check if there's a configuration error
+        if (status.status && (status.status.message || status.status.error)) {
+            const errorMessage = status.status.message || status.status.error;
+
+            // Return a more helpful message
+            return res.json({
+                success: true,
+                status: {
+                    ...status.status,
+                    configurationHelp: "Please ensure ULTRAMSG_TOKEN and ULTRAMSG_INSTANCE_ID are set in your environment variables."
+                }
+            });
+        }
+
         res.json({ success: true, status });
     } catch (error) {
-        res.status(500).json({ message: error.message });
+        res.status(500).json({
+            message: error.message,
+            configurationHelp: "Please ensure ULTRAMSG_TOKEN and ULTRAMSG_INSTANCE_ID are set in your environment variables."
+        });
     }
 };
 
