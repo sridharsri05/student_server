@@ -246,18 +246,15 @@ async function handlePaymentSuccess(paymentIntent) {
                     const emiPayments = await EMIPayment.find({ payment: payment._id });
                     console.log(`Found ${emiPayments.length} EMI payments for payment ${payment._id}`);
 
-                    // Reset all EMIs to pending status when processing a deposit payment
+                    // Reset ALL EMIs to pending status when processing a deposit payment
                     // Only explicit EMI payments should mark an installment as paid
                     for (const emi of emiPayments) {
-                        // Force all EMIs to pending status when processing a deposit payment
-                        if (emi.status === 'paid' && (!emi.paidDate || !emi.transactionId)) {
-                            console.log(`Resetting EMI #${emi.installmentNumber} to pending status`);
-                            emi.status = 'pending';
-                            emi.paidDate = null;
-                            await emi.save();
-                        } else {
-                            console.log(`EMI #${emi.installmentNumber} status: ${emi.status}`);
-                        }
+                        console.log(`Ensuring EMI #${emi.installmentNumber} remains in pending status`);
+                        emi.status = 'pending';
+                        emi.paidDate = null;
+                        emi.transactionId = null;
+                        emi.gatewayPaymentId = null;
+                        await emi.save();
                     }
                 }
             }
