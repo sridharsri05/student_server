@@ -240,21 +240,24 @@ async function handlePaymentSuccess(paymentIntent) {
                     console.warn(`Student not found for payment: ${payment._id}`);
                 }
 
-                // IMPORTANT: Check if any EMIs were incorrectly marked as paid
-                const emiPayments = await EMIPayment.find({ payment: payment._id });
-                console.log(`Found ${emiPayments.length} EMI payments for payment ${payment._id}`);
+                // IMPORTANT: Ensure all EMIs remain in pending status when a deposit payment is made
+                // Only process EMI payments if this is NOT an explicit EMI payment
+                if (!emiPaymentId) {
+                    const emiPayments = await EMIPayment.find({ payment: payment._id });
+                    console.log(`Found ${emiPayments.length} EMI payments for payment ${payment._id}`);
 
-                // FIXED: Ensure all EMIs are set to pending when deposit payment is made
-                // Only explicit EMI payments should mark an installment as paid
-                for (const emi of emiPayments) {
-                    console.log(`Checking EMI #${emi.installmentNumber} status: ${emi.status}`);
-
-                    // If this is a deposit payment and not an explicit EMI payment,
-                    // make sure all EMIs remain in pending status
-                    if (!emiPaymentId && (emi.status === 'paid' && !emi.paidDate)) {
-                        console.log(`Correcting EMI #${emi.installmentNumber} to pending status`);
-                        emi.status = 'pending';
-                        await emi.save();
+                    // Reset all EMIs to pending status when processing a deposit payment
+                    // Only explicit EMI payments should mark an installment as paid
+                    for (const emi of emiPayments) {
+                        // Force all EMIs to pending status when processing a deposit payment
+                        if (emi.status === 'paid' && (!emi.paidDate || !emi.transactionId)) {
+                            console.log(`Resetting EMI #${emi.installmentNumber} to pending status`);
+                            emi.status = 'pending';
+                            emi.paidDate = null;
+                            await emi.save();
+                        } else {
+                            console.log(`EMI #${emi.installmentNumber} status: ${emi.status}`);
+                        }
                     }
                 }
             }
