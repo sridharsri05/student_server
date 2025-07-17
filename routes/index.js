@@ -121,6 +121,19 @@ router.post('/reminder/:studentId', authenticate, authorize(['admin']), sendPaym
 // ----- WhatsApp Messaging -----
 router.post('/whatsapp/send', authenticate, authorize(['admin']), whatsappController.sendMessage);
 router.post('/whatsapp/broadcast', authenticate, authorize(['admin']), whatsappController.broadcastMessage);
+router.post('/whatsapp/document', authenticate, authorize(['admin']), whatsappController.sendDocument);
+router.post('/whatsapp/template', authenticate, authorize(['admin']), whatsappController.sendTemplate);
+router.get('/whatsapp/status', authenticate, authorize(['admin']), whatsappController.getStatus);
+router.post('/whatsapp/batch-notification', authenticate, authorize(['admin']), whatsappController.sendBatchNotification);
+router.post('/whatsapp/settings', authenticate, authorize(['admin']), whatsappController.saveSettings);
+
+// WhatsApp Templates
+router.get('/whatsapp/templates', authenticate, authorize(['admin']), whatsappController.getTemplates);
+router.get('/whatsapp/templates/:id', authenticate, authorize(['admin']), whatsappController.getTemplateById);
+router.post('/whatsapp/templates', authenticate, authorize(['admin']), whatsappController.createTemplate);
+router.put('/whatsapp/templates/:id', authenticate, authorize(['admin']), whatsappController.updateTemplate);
+router.delete('/whatsapp/templates/:id', authenticate, authorize(['admin']), whatsappController.deleteTemplate);
+router.post('/whatsapp/templates/:id/increment', authenticate, authorize(['admin']), whatsappController.incrementTemplateUsage);
 
 // ----- Admin Analytics -----
 // Get summary of students and payments
