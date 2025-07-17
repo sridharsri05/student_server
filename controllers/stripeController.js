@@ -180,113 +180,51 @@ async function handlePaymentSuccess(paymentIntent) {
             // Update main payment record
             const payment = await Payment.findById(paymentId);
             if (payment) {
-                console.log('Found payment record', {
-                    paymentId: payment._id,
+                // Determine if this is a deposit payment
+                const isDepositPayment =
+                    payment.depositAmount > 0 &&
+                    Math.abs(payment.depositAmount - (paymentIntent.amount / 100)) < 0.01;
+
+                console.log('Payment Details', {
                     totalAmount: payment.totalAmount,
                     depositAmount: payment.depositAmount,
-                    remainingAmount: payment.remainingAmount,
-                    status: payment.status
+                    paymentIntentAmount: paymentIntent.amount / 100,
+                    isDepositPayment
                 });
 
-                // Determine if this is a deposit payment
-                const isDepositPayment = payment.depositAmount > 0 &&
-                    payment.depositAmount === paymentIntent.amount / 100;
-
-                // If it's a deposit payment, ensure NO EMIs are marked as paid
+                // Update payment status
                 if (isDepositPayment) {
-                    console.log('Detected deposit payment. Ensuring EMIs remain pending.');
+                    payment.status = 'partial';
+                } else if (payment.totalAmount <= (paymentIntent.amount / 100)) {
+                    payment.status = 'completed';
+                }
 
-                    // Retrieve all EMI payments for this payment
+                // Ensure gateway payment details are updated
+                payment.gatewayPaymentId = paymentIntent.id;
+                payment.gatewayResponse = JSON.stringify(paymentIntent);
+
+                await payment.save();
+
+                // If it's a deposit payment, ENSURE no EMIs are marked as paid
+                if (isDepositPayment) {
                     const emiPayments = await EMIPayment.find({ payment: payment._id });
 
-                    // Force ALL EMIs to pending status
                     for (const emi of emiPayments) {
+                        console.log(`Resetting EMI ${emi._id} to pending status`);
                         emi.status = 'pending';
                         emi.paidDate = null;
                         emi.transactionId = null;
                         emi.gatewayPaymentId = null;
                         await emi.save();
                     }
-
-                    // Set payment status to partial
-                    payment.status = 'partial';
                 }
 
-                // Update payment details
-                payment.transactionId = paymentIntent.id;
-                payment.gatewayPaymentId = paymentIntent.id;
-                payment.gatewayResponse = JSON.stringify(paymentIntent);
-                payment.paidDate = new Date();
-
-                // Only set to completed if full payment is made
-                const isFullPayment = payment.depositAmount >= payment.totalAmount;
-                payment.status = isFullPayment ? 'completed' : 'partial';
-
-                if (!payment.receiptNumber) {
-                    const count = await Payment.countDocuments();
-                    payment.receiptNumber = `RCP${String(count + 1).padStart(6, '0')}`;
-                }
-
-                await payment.save();
-
-                // Fetch the student record
-                const student = await Student.findById(payment.student);
-                if (student) {
-                    // Update student's payment information
-                    student.paidAmount = payment.depositAmount;
-                    student.remainingAmount = payment.totalAmount - payment.depositAmount;
-                    student.status = 'active';
-                    student.feeStatus = isFullPayment ? 'complete' : 'partial';
-
-                    await student.save();
-                }
-            }
-        }
-
-        // Only handle EMI payment if this payment intent was specifically for an EMI
-        if (emiPaymentId) {
-            console.log(`Processing EMI payment with ID: ${emiPaymentId}`);
-
-            // Update EMI payment record
-            const emiPayment = await EMIPayment.findById(emiPaymentId);
-            if (emiPayment) {
-                console.log(`Found EMI payment #${emiPayment.installmentNumber}, current status: ${emiPayment.status}`);
-
-                emiPayment.status = 'paid';
-                emiPayment.paidDate = new Date();
-                emiPayment.transactionId = paymentIntent.id;
-                emiPayment.paymentMethod = 'online';
-
-                if (!emiPayment.receiptNumber) {
-                    const count = await EMIPayment.countDocuments();
-                    emiPayment.receiptNumber = `EMI${String(count + 1).padStart(6, '0')}`;
-                }
-
-                await emiPayment.save();
-                console.log(`Updated EMI payment #${emiPayment.installmentNumber} to paid status`);
-
-                // Check if all EMIs are paid and update main payment
-                const mainPayment = await Payment.findById(emiPayment.payment);
-                if (mainPayment) {
-                    const pendingEMIs = await EMIPayment.countDocuments({
-                        payment: mainPayment._id,
-                        status: { $in: ['pending', 'overdue'] }
-                    });
-
-                    console.log(`Payment ${mainPayment._id} has ${pendingEMIs} pending EMIs remaining`);
-
-                    if (pendingEMIs === 0) {
-                        mainPayment.status = 'completed';
-                        await mainPayment.save();
-                        console.log(`All EMIs paid, marked payment ${mainPayment._id} as completed`);
-                    }
-                }
-            } else {
-                console.warn(`EMI payment not found for ID: ${emiPaymentId}`);
+                return payment;
             }
         }
     } catch (error) {
-        console.error('Error processing payment success:', error);
+        console.error('Error in handlePaymentSuccess', error);
+        throw error;
     }
 }
 
@@ -613,104 +551,57 @@ export const manualEMIPaymentUpdate = async (req, res) => {
     const { status, paidDate, paymentMethod, paymentIntentId, transactionId } = req.body;
 
     // Validate input
-    if (!id || !paymentIntentId) {
-        console.warn('Invalid input for manual EMI payment update', {
-            id,
-            paymentIntentId
-        });
+    if (!id) {
+        console.warn('Invalid input for manual EMI payment update', { id });
         return res.status(400).json({
-            error: 'EMI Payment ID and Payment Intent ID are required',
-            details: { id, paymentIntentId }
+            error: 'EMI Payment ID is required',
+            details: { id }
         });
     }
 
     try {
-        // Log the incoming update request
-        console.log(`Attempting to update EMI payment status for ID: ${id}, Payment Intent: ${paymentIntentId}`);
+        // Find the EMI payment
+        const emiPayment = await EMIPayment.findById(id);
 
-        // Retrieve the payment intent from Stripe
-        const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
-
-        console.log('Stripe Payment Intent Retrieved for EMI', {
-            id: paymentIntent.id,
-            status: paymentIntent.status,
-            amount: paymentIntent.amount,
-            currency: paymentIntent.currency,
-            metadata: paymentIntent.metadata
-        });
-
-        // Find the corresponding payment record
-        const mainPayment = await Payment.findById(paymentIntent.metadata.paymentId);
-
-        if (!mainPayment) {
-            console.error(`Main payment not found for payment intent: ${paymentIntentId}`);
+        if (!emiPayment) {
+            console.warn(`EMI Payment not found: ${id}`);
             return res.status(404).json({
-                error: 'Main payment record not found',
-                details: { paymentIntentId }
+                error: 'EMI Payment not found',
+                details: { id }
             });
         }
 
-        // Check if this is a deposit payment
-        const isDepositPayment = mainPayment.depositAmount > 0 &&
-            mainPayment.depositAmount === paymentIntent.amount / 100;
+        // Retrieve the associated payment
+        const payment = await Payment.findById(emiPayment.payment);
 
+        if (!payment) {
+            console.warn(`Payment not found for EMI Payment: ${id}`);
+            return res.status(404).json({
+                error: 'Associated Payment not found',
+                details: { emiPaymentId: id }
+            });
+        }
+
+        // Prevent status changes during deposit payments
+        const isDepositPayment = payment.depositAmount > 0;
         if (isDepositPayment) {
-            console.log('Detected deposit payment. Preventing EMI status update.');
+            console.warn(`Attempted to update EMI status during deposit payment: ${id}`);
             return res.status(400).json({
-                error: 'Cannot manually update EMI status for deposit payments',
+                error: 'Cannot update EMI status during deposit payment',
                 details: {
-                    depositAmount: mainPayment.depositAmount,
-                    paymentIntentAmount: paymentIntent.amount / 100
+                    emiPaymentId: id,
+                    paymentId: payment._id,
+                    depositAmount: payment.depositAmount
                 }
             });
         }
 
-        // Find the corresponding EMI payment in the database
-        let emiPayment = await EMIPayment.findById(id);
-
-        // If not found by ID, try to find by gatewayPaymentId
-        if (!emiPayment) {
-            emiPayment = await EMIPayment.findOne({
-                gatewayPaymentId: paymentIntentId
-            });
-
-            if (emiPayment) {
-                console.log(`EMI payment found by payment intent ID instead of EMI ID. EMI ID: ${emiPayment._id}`);
-            }
-        }
-
-        // If still not found, try to find by metadata
-        if (!emiPayment && paymentIntent.metadata && paymentIntent.metadata.emiPaymentId) {
-            emiPayment = await EMIPayment.findById(paymentIntent.metadata.emiPaymentId);
-            if (emiPayment) {
-                console.log(`EMI payment found using metadata from payment intent. EMI ID: ${emiPayment._id}`);
-            }
-        }
-
-        if (!emiPayment) {
-            console.error(`EMI Payment not found for ID: ${id} or Payment Intent: ${paymentIntentId}`);
-            return res.status(404).json({
-                error: 'EMI Payment record not found',
-                details: { id, paymentIntentId }
-            });
-        }
-
-        // Check payment intent status
-        if (paymentIntent.status !== 'succeeded') {
-            console.warn(`Payment Intent ${paymentIntentId} status is not 'succeeded'. Current status: ${paymentIntent.status}`);
-            return res.status(400).json({
-                error: 'Payment not yet completed',
-                currentStatus: paymentIntent.status
-            });
-        }
-
-        // Update EMI payment status
-        emiPayment.status = status || 'paid';
-        emiPayment.paidDate = paidDate || new Date();
-        emiPayment.paymentMethod = paymentMethod || 'online';
-        emiPayment.transactionId = transactionId || paymentIntent.id;
-        emiPayment.gatewayPaymentId = paymentIntentId;
-        emiPayment.gatewayResponse = JSON.stringify(paymentIntent);
+        // Update EMI payment details
+        if (status) emiPayment.status = status;
+        if (paidDate) emiPayment.paidDate = new Date(paidDate);
+        if (paymentMethod) emiPayment.paymentMethod = paymentMethod;
+        if (paymentIntentId) emiPayment.gatewayPaymentId = paymentIntentId;
+        if (transactionId) emiPayment.transactionId = transactionId;
 
         // Save the updated EMI payment
         await emiPayment.save();
@@ -773,33 +664,21 @@ export const manualEMIPaymentUpdate = async (req, res) => {
             }
         }
 
-        // Log successful update
-        console.log(`EMI Payment ${emiPayment._id} successfully updated to paid`, {
-            emiPaymentDetails: {
-                _id: emiPayment._id,
-                studentId: emiPayment.student,
-                amount: emiPayment.amount,
-                installmentNumber: emiPayment.installmentNumber
-            }
+        console.log(`EMI Payment updated successfully: ${emiPayment._id}`, {
+            status: emiPayment.status,
+            pendingEMIs: pendingEMIs
         });
 
         return res.status(200).json({
             message: 'EMI Payment status updated successfully',
             emiPaymentId: emiPayment._id,
-            status: emiPayment.status
+            status: emiPayment.status,
+            pendingEMIs: pendingEMIs
         });
-
     } catch (error) {
-        // Log any unexpected errors
-        console.error('Error in manual EMI payment update', {
-            error: error.message,
-            stack: error.stack,
-            id,
-            paymentIntentId
-        });
-
+        console.error('Error in manual EMI payment update', error);
         return res.status(500).json({
-            error: 'Internal server error during EMI payment status update',
+            error: 'Internal server error',
             details: error.message
         });
     }

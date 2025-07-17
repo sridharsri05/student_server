@@ -63,13 +63,17 @@ emiPaymentSchema.pre('save', function (next) {
 
     // Only update status if it's not explicitly set
     if (!this.isModified('status')) {
-        // If payment has been made AND there's a transaction ID, ensure status is 'paid'
-        if (this.paidDate && this.transactionId) {
+        // Require both paidDate AND transactionId to mark as paid
+        // This prevents accidental status changes during deposit payments
+        if (this.paidDate && this.transactionId && this.gatewayPaymentId) {
             this.status = 'paid';
         }
         // If past due date and not being processed, mark as overdue
         else if (now > this.dueDate && this.status !== 'processing') {
             this.status = 'overdue';
+        } else {
+            // Ensure status remains pending by default
+            this.status = 'pending';
         }
     }
 
