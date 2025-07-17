@@ -60,19 +60,19 @@ const emiPaymentSchema = new mongoose.Schema({
 // Auto-update status based on due date
 emiPaymentSchema.pre('save', function (next) {
     const now = new Date();
-    
+
     // Only update status if it's not explicitly set
     if (!this.isModified('status')) {
-        // If payment has been made, ensure status is 'paid'
-        if (this.paidDate) {
+        // If payment has been made AND there's a transaction ID, ensure status is 'paid'
+        if (this.paidDate && this.transactionId) {
             this.status = 'paid';
-        } 
+        }
         // If past due date and not being processed, mark as overdue
         else if (now > this.dueDate && this.status !== 'processing') {
             this.status = 'overdue';
         }
     }
-    
+
     this.updatedAt = now;
     next();
 });
