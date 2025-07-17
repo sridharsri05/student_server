@@ -103,7 +103,23 @@ export const getStatus = async (req, res) => {
             });
         }
 
-        res.json({ success: true, status });
+        // Extract phone number from UltraMsg config or status response
+        let phoneNumber = "";
+        if (ultramsgConfig.settings && ultramsgConfig.settings.phoneNumber) {
+            phoneNumber = ultramsgConfig.settings.phoneNumber;
+        } else if (status.status && status.status.instance && status.status.instance.phone) {
+            phoneNumber = status.status.instance.phone;
+        }
+
+        // Ensure we have a consistent response structure
+        res.json({
+            success: true,
+            status: {
+                ...status,
+                phone: phoneNumber || "+91 9876543210", // Default phone number if none is available
+                businessName: ultramsgConfig.settings?.businessName || "EduFlow Institute"
+            }
+        });
     } catch (error) {
         res.status(500).json({
             message: error.message,

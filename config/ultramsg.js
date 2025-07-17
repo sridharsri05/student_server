@@ -4,6 +4,7 @@ const ultramsgConfig = {
     baseUrl: process.env.ULTRAMSG_BASE_URL || 'https://api.ultramsg.com',
     settings: {
         businessName: process.env.ULTRAMSG_BUSINESS_NAME || 'EduFlow Institute',
+        phoneNumber: process.env.ULTRAMSG_PHONE_NUMBER || '+91 9876543210',
         messageQueue: process.env.ULTRAMSG_MESSAGE_QUEUE === 'true',
         deliveryReports: process.env.ULTRAMSG_DELIVERY_REPORTS === 'true',
         autoReply: process.env.ULTRAMSG_AUTO_REPLY === 'true',
