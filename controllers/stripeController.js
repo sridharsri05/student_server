@@ -582,10 +582,45 @@ export const manualEMIPaymentUpdate = async (req, res) => {
             });
         }
 
-        // Prevent status changes during deposit payments
+        // Retrieve Stripe payment intent to verify payment
+        let paymentIntent = null;
+        if (paymentIntentId) {
+            try {
+                paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
+            } catch (stripeError) {
+                console.warn('Failed to retrieve Stripe Payment Intent', {
+                    paymentIntentId,
+                    error: stripeError.message
+                });
+            }
+        }
+
+        // Determine if this is a valid online payment
+        const isValidOnlinePayment =
+            paymentIntent &&
+            paymentIntent.status === 'succeeded' &&
+            paymentIntent.amount > 0;
+
+        // Check if this is a full payment scenario
+        const isFullPayment =
+            isValidOnlinePayment &&
+            Math.abs(payment.totalAmount - (paymentIntent.amount / 100)) < 0.01;
+
+        // Check if this is a deposit payment scenario
         const isDepositPayment = payment.depositAmount > 0;
-        if (isDepositPayment) {
-            console.warn(`Attempted to update EMI status during deposit payment: ${id}`);
+
+        // Conditions for preventing update
+        const shouldPreventUpdate =
+            isDepositPayment &&
+            (!isValidOnlinePayment ||
+                Math.abs(payment.depositAmount - (paymentIntent.amount / 100)) > 0.01);
+
+        if (shouldPreventUpdate) {
+            console.warn(`Attempted to update EMI status during deposit payment: ${id}`, {
+                depositAmount: payment.depositAmount,
+                paymentIntentAmount: paymentIntent ? paymentIntent.amount / 100 : 'N/A',
+                paymentIntentStatus: paymentIntent ? paymentIntent.status : 'N/A'
+            });
             return res.status(400).json({
                 error: 'Cannot update EMI status during deposit payment',
                 details: {
@@ -619,7 +654,7 @@ export const manualEMIPaymentUpdate = async (req, res) => {
         const mainPaymentToUpdate = await Payment.findById(emiPayment.payment);
         if (mainPaymentToUpdate) {
             // Determine new payment status
-            if (pendingEMIs === 0) {
+            if (isFullPayment || pendingEMIs === 0) {
                 mainPaymentToUpdate.status = 'completed';
             } else {
                 mainPaymentToUpdate.status = 'partial';
@@ -638,26 +673,27 @@ export const manualEMIPaymentUpdate = async (req, res) => {
                 student.remainingAmount = (student.totalFees || mainPaymentToUpdate.totalAmount) - totalPaid;
 
                 // Update fee status
-                if (student.remainingAmount <= 0) {
+                if (student.remainingAmount <= 0 || isFullPayment) {
                     student.feeStatus = 'complete';
-                    student.status = 'active-paid';
+                    student.status = 'active-paid'; // Explicitly use 'active-paid'
+                    student.nextPaymentDue = null; // Clear next payment due
                 } else {
                     student.feeStatus = 'partial';
                     student.status = 'active';
-                }
 
-                // If there are more pending EMIs, set the next due date
-                if (pendingEMIs > 0) {
-                    const nextEMI = await EMIPayment.findOne({
-                        payment: mainPaymentToUpdate._id,
-                        status: { $in: ['pending', 'overdue'] }
-                    }).sort({ dueDate: 1 });
+                    // If there are more pending EMIs, set the next due date
+                    if (pendingEMIs > 0) {
+                        const nextEMI = await EMIPayment.findOne({
+                            payment: mainPaymentToUpdate._id,
+                            status: { $in: ['pending', 'overdue'] }
+                        }).sort({ dueDate: 1 });
 
-                    if (nextEMI) {
-                        student.nextPaymentDue = nextEMI.dueDate;
+                        if (nextEMI) {
+                            student.nextPaymentDue = nextEMI.dueDate;
+                        }
+                    } else {
+                        student.nextPaymentDue = null;
                     }
-                } else {
-                    student.nextPaymentDue = null; // No more payments due
                 }
 
                 await student.save();
@@ -666,14 +702,18 @@ export const manualEMIPaymentUpdate = async (req, res) => {
 
         console.log(`EMI Payment updated successfully: ${emiPayment._id}`, {
             status: emiPayment.status,
-            pendingEMIs: pendingEMIs
+            pendingEMIs: pendingEMIs,
+            isValidOnlinePayment,
+            isFullPayment,
+            isDepositPayment
         });
 
         return res.status(200).json({
             message: 'EMI Payment status updated successfully',
             emiPaymentId: emiPayment._id,
             status: emiPayment.status,
-            pendingEMIs: pendingEMIs
+            pendingEMIs: pendingEMIs,
+            isFullPayment
         });
     } catch (error) {
         console.error('Error in manual EMI payment update', error);
