@@ -683,8 +683,35 @@ export const manualEMIPaymentUpdate = async (req, res) => {
             id: paymentIntent.id,
             status: paymentIntent.status,
             amount: paymentIntent.amount,
-            currency: paymentIntent.currency
+            currency: paymentIntent.currency,
+            metadata: paymentIntent.metadata
         });
+
+        // Find the corresponding payment record
+        const mainPayment = await Payment.findById(paymentIntent.metadata.paymentId);
+
+        if (!mainPayment) {
+            console.error(`Main payment not found for payment intent: ${paymentIntentId}`);
+            return res.status(404).json({
+                error: 'Main payment record not found',
+                details: { paymentIntentId }
+            });
+        }
+
+        // Check if this is a deposit payment
+        const isDepositPayment = mainPayment.depositAmount > 0 &&
+            mainPayment.depositAmount === paymentIntent.amount / 100;
+
+        if (isDepositPayment) {
+            console.log('Detected deposit payment. Preventing EMI status update.');
+            return res.status(400).json({
+                error: 'Cannot manually update EMI status for deposit payments',
+                details: {
+                    depositAmount: mainPayment.depositAmount,
+                    paymentIntentAmount: paymentIntent.amount / 100
+                }
+            });
+        }
 
         // Find the corresponding EMI payment in the database
         let emiPayment = await EMIPayment.findById(id);
@@ -700,41 +727,11 @@ export const manualEMIPaymentUpdate = async (req, res) => {
             }
         }
 
-        // If still not found, check for metadata in the payment intent
+        // If still not found, try to find by metadata
         if (!emiPayment && paymentIntent.metadata && paymentIntent.metadata.emiPaymentId) {
             emiPayment = await EMIPayment.findById(paymentIntent.metadata.emiPaymentId);
             if (emiPayment) {
                 console.log(`EMI payment found using metadata from payment intent. EMI ID: ${emiPayment._id}`);
-            }
-        }
-
-        // If still not found, try to find any EMI payment for the student in the payment intent metadata
-        if (!emiPayment && paymentIntent.metadata && paymentIntent.metadata.studentId) {
-            const studentEmiPayments = await EMIPayment.find({
-                student: paymentIntent.metadata.studentId,
-                status: { $in: ['pending', 'overdue'] }
-            }).sort({ dueDate: 1 }).limit(1);
-
-            if (studentEmiPayments && studentEmiPayments.length > 0) {
-                emiPayment = studentEmiPayments[0];
-                console.log(`EMI payment found by student ID from metadata. EMI ID: ${emiPayment._id}`);
-            }
-        }
-
-        // Last resort: try to find EMI payments with similar IDs (in case of typos)
-        if (!emiPayment && id && id.length >= 20) {
-            // Get first 20 chars of the ID to match on
-            const idPrefix = id.substring(0, 20);
-            console.log(`Trying to find EMI payment with similar ID prefix: ${idPrefix}`);
-
-            // Use regex to find EMI payments with similar IDs
-            const similarEmiPayments = await EMIPayment.find({
-                _id: { $regex: new RegExp('^' + idPrefix) }
-            }).limit(1);
-
-            if (similarEmiPayments && similarEmiPayments.length > 0) {
-                emiPayment = similarEmiPayments[0];
-                console.log(`Found EMI payment with similar ID. Actual ID: ${emiPayment._id}, Requested ID: ${id}`);
             }
         }
 
@@ -767,35 +764,35 @@ export const manualEMIPaymentUpdate = async (req, res) => {
         await emiPayment.save();
 
         // Check if all EMIs are paid for this payment
-        const mainPayment = await Payment.findById(emiPayment.payment);
-        if (mainPayment) {
-            const pendingEMIs = await EMIPayment.countDocuments({
-                payment: mainPayment._id,
-                status: { $in: ['pending', 'overdue'] }
-            });
+        const pendingEMIs = await EMIPayment.countDocuments({
+            payment: emiPayment.payment,
+            status: { $in: ['pending', 'overdue'] }
+        });
 
-            // Update main payment status based on EMIs
+        // Update main payment status based on EMIs
+        const mainPaymentToUpdate = await Payment.findById(emiPayment.payment);
+        if (mainPaymentToUpdate) {
             if (pendingEMIs === 0) {
-                mainPayment.status = 'completed';
+                mainPaymentToUpdate.status = 'completed';
             } else {
-                mainPayment.status = 'partial';
+                mainPaymentToUpdate.status = 'partial';
             }
-            await mainPayment.save();
+            await mainPaymentToUpdate.save();
 
             // Update student record
-            const student = await Student.findById(mainPayment.student);
+            const student = await Student.findById(mainPaymentToUpdate.student);
             if (student) {
                 // Calculate how much has been paid in total (deposit + paid EMIs)
                 const paidEMIs = await EMIPayment.find({
-                    payment: mainPayment._id,
+                    payment: mainPaymentToUpdate._id,
                     status: 'paid'
                 });
 
                 const totalPaidInEMIs = paidEMIs.reduce((total, emi) => total + (emi.amount || 0), 0);
-                const totalPaid = (mainPayment.depositAmount || 0) + totalPaidInEMIs;
+                const totalPaid = (mainPaymentToUpdate.depositAmount || 0) + totalPaidInEMIs;
 
                 student.paidAmount = totalPaid;
-                student.remainingAmount = (student.totalFees || mainPayment.totalAmount) - totalPaid;
+                student.remainingAmount = (student.totalFees || mainPaymentToUpdate.totalAmount) - totalPaid;
 
                 // Update fee status
                 if (student.remainingAmount <= 0) {
@@ -809,7 +806,7 @@ export const manualEMIPaymentUpdate = async (req, res) => {
                 // If there are more pending EMIs, set the next due date
                 if (pendingEMIs > 0) {
                     const nextEMI = await EMIPayment.findOne({
-                        payment: mainPayment._id,
+                        payment: mainPaymentToUpdate._id,
                         status: { $in: ['pending', 'overdue'] }
                     }).sort({ dueDate: 1 });
 
