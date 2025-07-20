@@ -2,6 +2,7 @@ import { stripe, stripeConfig } from '../config/stripe.js';
 import Student from '../models/Student.js';
 import Payment from '../models/Payment.js';
 import EMIPayment from '../models/EMIPayment.js';
+import mongoose from 'mongoose';
 
 // Create a payment intent for Stripe
 export const createPaymentIntent = async (req, res) => {
@@ -276,6 +277,43 @@ export const manualPaymentStatusUpdate = async (req, res) => {
     }
 
     try {
+        // Debug: Check if the payment ID is a valid MongoDB ObjectId
+        if (!mongoose.Types.ObjectId.isValid(paymentId)) {
+            console.error('Invalid Payment ID format', {
+                paymentId,
+                paymentIdType: typeof paymentId,
+                paymentIdLength: paymentId.length
+            });
+            return res.status(400).json({
+                error: 'Invalid Payment ID format',
+                details: { paymentId }
+            });
+        }
+
+        // Debug: Log all payments to help diagnose
+        const allPayments = await Payment.find({}).limit(10).select('_id totalAmount depositAmount status');
+        console.log('Last 10 Payments in Database:', JSON.stringify(allPayments, null, 2));
+
+        // Retrieve the payment with more detailed logging
+        const payment = await Payment.findById(paymentId);
+
+        if (!payment) {
+            console.error('Payment not found', {
+                paymentId,
+                paymentIdType: typeof paymentId,
+                paymentIdLength: paymentId.length,
+                databasePaymentIds: allPayments.map(p => p._id.toString())
+            });
+            return res.status(404).json({
+                error: 'Payment record not found',
+                details: {
+                    paymentId,
+                    message: 'Unable to locate payment in database',
+                    lastPaymentIds: allPayments.map(p => p._id.toString())
+                }
+            });
+        }
+
         // Retrieve the payment intent from Stripe
         const paymentIntent = await stripe.paymentIntents.retrieve(paymentIntentId);
 
@@ -285,17 +323,6 @@ export const manualPaymentStatusUpdate = async (req, res) => {
             amount: paymentIntent.amount,
             currency: paymentIntent.currency
         });
-
-        // Find the corresponding payment
-        const payment = await Payment.findById(paymentId);
-
-        if (!payment) {
-            console.error(`Payment not found for ID: ${paymentId}`);
-            return res.status(404).json({
-                error: 'Payment record not found',
-                details: { paymentId }
-            });
-        }
 
         // Validate payment intent status
         if (paymentIntent.status !== 'succeeded') {
@@ -410,10 +437,19 @@ export const manualPaymentStatusUpdate = async (req, res) => {
             }
         });
     } catch (error) {
-        console.error('Error in manual payment status update:', error);
+        console.error('Comprehensive Error in manual payment status update:', {
+            errorMessage: error.message,
+            errorStack: error.stack,
+            paymentId,
+            paymentIntentId
+        });
         res.status(500).json({
             error: 'Failed to update payment status',
-            details: error.message
+            details: {
+                message: error.message,
+                paymentId,
+                paymentIntentId
+            }
         });
     }
 };
