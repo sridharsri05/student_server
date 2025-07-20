@@ -408,7 +408,7 @@ export const manualPaymentStatusUpdate = async (req, res) => {
             // Update fee status
             if (student.remainingAmount <= 0) {
                 student.feeStatus = 'complete';
-                student.status = 'active-paid';
+                student.status = 'active'; // Changed from 'active-paid'
                 student.nextPaymentDue = null;
             } else {
                 student.feeStatus = 'partial';
@@ -639,7 +639,7 @@ export const manualEMIPaymentUpdate = async (req, res) => {
                 // Update fee status
                 if (student.remainingAmount <= 0 || isFullPayment) {
                     student.feeStatus = 'complete';
-                    student.status = 'active-paid'; // Explicitly use 'active-paid'
+                    student.status = 'active'; // Changed from 'active-paid'
                     student.nextPaymentDue = null; // Clear next payment due
                 } else {
                     student.feeStatus = 'partial';
